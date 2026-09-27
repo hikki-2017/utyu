@@ -10,6 +10,32 @@
     font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif; overflow:hidden; }
   canvas#gl { position:fixed; inset:0; display:block; touch-action:none; }
   video { display:none; }
+  #emotion { position:fixed; left:16px; bottom:16px; z-index:55; display:flex; gap:12px; align-items:center;
+    padding:10px 14px 10px 10px; border-radius:16px; background:rgba(8,11,22,.62);
+    border:1px solid rgba(232,236,255,.13); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
+  #emotion .cam { position:relative; width:104px; height:78px; border-radius:11px; overflow:hidden;
+    background:#05070e; flex:none; }
+  #emotion .cam video { display:block; width:100%; height:100%; object-fit:cover; transform:scaleX(-1);
+    filter:saturate(.55) contrast(1.05); }
+  #emotion .cam .scan { position:absolute; left:0; right:0; height:2px; top:0;
+    background:linear-gradient(90deg,transparent,rgba(127,216,255,.85),transparent); animation:scan 2.6s linear infinite; }
+  @keyframes scan { from { transform:translateY(0) } to { transform:translateY(78px) } }
+  #emotion .vit { min-width:132px; }
+  #emotion .row { display:flex; align-items:baseline; gap:7px; }
+  #emotion .ring { width:11px; height:11px; border-radius:50%; background:#ff5f7a; flex:none;
+    box-shadow:0 0 12px #ff5f7a; animation:beat 1s ease-out infinite; align-self:center; }
+  @keyframes beat { 0% { transform:scale(.72); opacity:.65 } 18% { transform:scale(1.3); opacity:1 } 100% { transform:scale(.72); opacity:.65 } }
+  #emotion b { font-size:30px; font-weight:700; letter-spacing:-.02em; line-height:1; color:var(--fg); }
+  #emotion small { font-size:11px; color:var(--dim); }
+  #emotion .lab { font-size:15px; font-weight:600; margin-top:4px; color:#9fd8ff; letter-spacing:.02em; }
+  #emotion .bar { height:4px; border-radius:2px; background:rgba(232,236,255,.13); margin-top:7px; overflow:hidden; }
+  #emotion .bar i { display:block; height:100%; width:0%; border-radius:2px;
+    background:linear-gradient(90deg,#30d158,#ffd60a,#ff453a); transition:width .5s ease; }
+  #emotion .src { font-size:10px; color:var(--dim); margin-top:5px; }
+  body.stage-intro #emotion, body.stage-prelude #emotion { opacity:0; pointer-events:none; }
+  body.hide-hud #emotion { opacity:0; }
+  @media (max-width:860px) { #emotion { left:10px; bottom:10px; padding:8px; gap:9px; }
+    #emotion .cam { width:78px; height:58px; } #emotion b { font-size:23px; } #emotion .vit { min-width:104px; } }
   .ui { transition:opacity .8s; }
   body.stage-intro .ui, body.stage-prelude .ui { opacity:0; pointer-events:none; }
   body.hide-hud #hud, body.hide-hud #mode, body.hide-hud #controls { opacity:0; pointer-events:none; }
@@ -59,7 +85,15 @@
 <body class="stage-intro">
 <script src="vendor/tone/Tone.js"></script>
 <canvas id="gl"></canvas>
-<video id="video" playsinline muted></video>
+<div id="emotion" hidden>
+  <div class="cam"><video id="video" playsinline muted></video><i class="scan"></i></div>
+  <div class="vit">
+    <div class="row"><span class="ring" id="e-ring"></span><b id="e-bpm">—</b><small>bpm</small></div>
+    <div class="lab" id="e-label">読み取り中…</div>
+    <div class="bar"><i id="e-stress"></i></div>
+    <div class="src" id="e-src">—</div>
+  </div>
+</div>
 
 <div id="intro">
   <h1>INNER COSMOS</h1>
@@ -856,6 +890,40 @@ function updateScene(dt, pulse) {
   bhRing.rotation.z += dt * 0.8;
 }
 
+// 鼓動と緊張から、いまの状態を言葉にする。診断ではなく、宇宙への入力としての表現。
+function emotionWord(hr, st, act) {
+  if (st > 0.72) return ['はりつめている', '#ff6b7a'];
+  if (st > 0.5)  return ['気が張っている', '#ffa04a'];
+  if (act > 0.45) return ['高ぶっている', '#ffd05a'];
+  if (hr > 92)   return ['息が上がっている', '#ffd05a'];
+  if (st < 0.22 && act < 0.15) return ['しずかにしている', '#7fd8ff'];
+  return ['おだやか', '#9fe8b0'];
+}
+
+let lastBeatMs = 0;
+function updateEmotion() {
+  const el = $('emotion');
+  if (!el) return;
+  if (stage !== 'live') { el.hidden = true; return; }
+  el.hidden = false;
+  const hr = Math.round(view.heartRate), st = view.stress;
+  const [word, color] = emotionWord(hr, st, activity);
+  $('e-bpm').textContent = hr;
+  $('e-stress').style.width = Math.round(st * 100) + '%';
+  const lab = $('e-label');
+  lab.textContent = word; lab.style.color = color;
+  const ring = $('e-ring');
+  // 拍動を実際の心拍数に合わせる
+  const beatMs = Math.round(60000 / Math.max(40, Math.min(180, hr)));
+  if (beatMs !== lastBeatMs) { ring.style.animationDuration = beatMs + 'ms'; lastBeatMs = beatMs; }
+  ring.style.background = color; ring.style.boxShadow = '0 0 12px ' + color;
+  const cam = el.querySelector('.cam');
+  cam.style.display = videoReady ? '' : 'none';
+  $('e-src').textContent = videoReady
+    ? `カメラ ／ ${bodyState.source === 'LIFACE' ? '表情から推定（ローカル）' : 'デモ値'}`
+    : 'カメラなし ／ デモ値';
+}
+
 function updateHud() {
   const state = bhStrength > 0.3 ? 'ブラックホール発生' : view.stress > 0.5 ? '過密' : activity > 0.25 ? '活発' : '安定';
   $('h-born').textContent = starsBorn;
@@ -866,6 +934,7 @@ function updateHud() {
   const eye = videoReady ? (segmenter ? 'カメラ' : 'カメラ(動きのみ)') : 'タッチ';
   $('h-src').textContent = `入力: ${eye} ／ 身体: ${bodySrc} ／ 声: ${aiOnline ? 'ローカルAI' : '定型文'}`;
   $('mode').textContent = mode === 'SEED' ? '' : mode;
+  updateEmotion();
 }
 
 let last = performance.now(), frame = 0, time = 0, fps = 60;
