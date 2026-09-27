@@ -33,7 +33,10 @@ export function initJourney({ setMode, focusTyphoon, focusIss }) {
     try {
       const f = $("#inner"), d = f.contentDocument, w = f.contentWindow;
       d.querySelector("#start")?.click();
-      setTimeout(() => { try { w.__cosmos?.submitWeek("バイト3回、課題に追われた、友達と遊んだ、ハッカソン"); } catch (e) {} }, 1800);
+      // すでに誰かが一文を入れていたら、上書きしない（審査員の宇宙を消さないため）
+      setTimeout(() => {
+        try { if (!w.__cosmos?.weekCount) w.__cosmos?.submitWeek("バイト3回、課題に追われた、友達と遊んだ、ハッカソン"); } catch (e) {}
+      }, 1800);
     } catch (e) { /* iframe not ready */ }
   }
 
