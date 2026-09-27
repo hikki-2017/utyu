@@ -293,9 +293,14 @@ function d2s(a, b) {
   const dx = sPos[a*3] - sPos[b*3], dy = sPos[a*3+1] - sPos[b*3+1], dz = sPos[a*3+2] - sPos[b*3+2];
   return dx*dx + dy*dy + dz*dz;
 }
-function spawnSpark(x, y, z, strength, vx = 0, vy = 0) {
-  const i = sHead; sHead = (sHead + 1) % S;
-  sAlive[i] = 1; sGen[i] = genCounter++; sAge[i] = 0; sLife[i] = 10 + Math.random() * 6;
+const PERM = 64;                 // 実観測イベント由来の星のための予約枠
+const RING = S - PERM;           // 通常の星が回るリングバッファ
+let permHead = 0;
+function spawnSpark(x, y, z, strength, vx = 0, vy = 0, permanent = false) {
+  const i = permanent ? RING + (permHead++ % PERM) : sHead;
+  if (!permanent) sHead = (sHead + 1) % RING;
+  // 実観測の星は消えない。現実に起きた記録なので、寿命を持たせない。
+  sAlive[i] = 1; sGen[i] = genCounter++; sAge[i] = 0; sLife[i] = permanent ? Infinity : 10 + Math.random() * 6;
   sPos[i*3] = x; sPos[i*3+1] = y; sPos[i*3+2] = z;
   sVel[i*3] = vx + g() * 0.35; sVel[i*3+1] = vy + g() * 0.35; sVel[i*3+2] = g() * 0.2;
   const h = view.stress > 0.6 ? 0.9 + Math.random() * 0.08 : 0.5 + clamp(y / 10 + 0.5, 0, 1) * 0.2 + Math.random() * 0.04;
@@ -316,7 +321,9 @@ function spawnSpark(x, y, z, strength, vx = 0, vy = 0) {
   sparkNote(x, y, strength);
 }
 function clearSparks() {
-  sAlive.fill(0); sCol.fill(0); sSize.fill(0); lGA.fill(0); lastSpark = -1; starsBorn = 0;
+  // 実観測由来（予約枠）の星は残す。現実に起きた記録は週を作り直しても消さない。
+  for (let i = 0; i < RING; i++) { sAlive[i] = 0; sSize[i] = 0; sCol[i*3] = sCol[i*3+1] = sCol[i*3+2] = 0; }
+  lGA.fill(0); lastSpark = -1; starsBorn = 0;
 }
 
 function updateSparks(dt) {
@@ -992,7 +999,22 @@ $('start').onclick = async () => {
    親フレーム（地球を守る宇宙の目）から届く実観測データを、
    この宇宙の物理に流し込む。現実の観測が、あなたの宇宙に星を生む。
    ============================================================ */
-let realLive = null, realStars = 0, realSeen = new Set();
+const REAL_KEY = "inner-cosmos:real-stars";
+let realLive = null, realStars = 0, realSeen = new Set(), realLog = [];
+
+function saveReal() {
+  try { localStorage.setItem(REAL_KEY, JSON.stringify(realLog.slice(-PERM))); } catch (e) { /* 保存できなくても動く */ }
+}
+function restoreReal() {
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(REAL_KEY) || "[]"); } catch (e) { return; }
+  if (!Array.isArray(saved)) return;
+  for (const r of saved.slice(-PERM)) {
+    if (!r || !r.k) continue;
+    realSeen.add(r.k); realLog.push(r); realStars++;
+    try { spawnSpark(r.x, r.y, r.z, r.s || 0.9, 0, 0, true); } catch (e) { /* 描画前なら諦める */ }
+  }
+}
 function applyReal(d) {
   if (!d) return;
   realLive = d;
@@ -1014,19 +1036,24 @@ function applyReal(d) {
     if (realSeen.has(e.k)) continue;
     realSeen.add(e.k); realStars++;
     const a = Math.random() * Math.PI * 2, r = 6 + Math.random() * 3;
-    try { spawnSpark(Math.cos(a) * r, (Math.random() - 0.5) * 4, Math.sin(a) * r, e.s); } catch (err) { /* not ready yet */ }
+    const rec = { k: e.k, x: Math.cos(a) * r, y: (Math.random() - 0.5) * 4, z: Math.sin(a) * r, s: e.s };
+    realLog.push(rec); saveReal();
+    try { spawnSpark(rec.x, rec.y, rec.z, rec.s, 0, 0, true); } catch (err) { /* not ready yet */ }
   }
+  const el2 = $('h-real');
+  if (el2 && realStars) el2.insertAdjacentHTML('beforeend', `<br><span style="color:#7fd8ff">★ 現実から届いた星 ${realStars}</span>`);
 }
 window.addEventListener('message', (ev) => {
   if (ev.data && ev.data.type === 'earth-eye:live') applyReal(ev.data.payload);
 });
+restoreReal();
 try { parent.postMessage({ type: 'inner:ready' }, '*'); } catch (e) {}
 
 window.__cosmos = { get starsBorn() { return starsBorn; }, get stage() { return stage; }, get mode() { return mode; },
   get fps() { return Math.round(fps); }, get videoReady() { return videoReady; }, get activity() { return activity; },
   get bh() { return bhStrength; }, get ending() { return ending; }, get weekDensity() { return weekDensity; },
   get weekSummary() { return weekSummary; }, get weekCount() { return weekItems.length; },
-  get realStars() { return realStars; }, get realLive() { return realLive; }, applyReal,
+  get realStars() { return realStars; }, get realLive() { return realLive; }, get realLog() { return realLog; }, applyReal,
   submitWeek: (text) => { $('week-input').value = text; submitWeek(); } };
 </script>
 </body>
