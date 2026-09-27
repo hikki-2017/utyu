@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: earth-eye
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz

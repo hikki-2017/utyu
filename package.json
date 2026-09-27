@@ -1,0 +1,9 @@
+{
+  "name": "earth-eye",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "地球を守る宇宙の目 - AI x 衛星データ 72時間リスク予測",
+  "scripts": { "start": "node server.js", "test": "node test/model.test.js" },
+  "engines": { "node": ">=20" }
+}

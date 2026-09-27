@@ -1,0 +1,11 @@
+{
+  "name": "地球を守る宇宙の目",
+  "short_name": "宇宙の目",
+  "description": "AI×衛星データで72時間先の地球のリスクを見る。太陽系・宇宙の地図つき",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#070b16",
+  "theme_color": "#070b16",
+  "lang": "ja",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

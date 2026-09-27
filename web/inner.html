@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>INNER COSMOS</title>
+<style>
+  :root { --fg:#e8ecff; --dim:#8a93b8; }
+  html, body { margin:0; height:100%; background:#000; color:var(--fg);
+    font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif; overflow:hidden; }
+  canvas#gl { position:fixed; inset:0; display:block; touch-action:none; }
+  video { display:none; }
+  .ui { transition:opacity .8s; }
+  body.stage-intro .ui, body.stage-prelude .ui { opacity:0; pointer-events:none; }
+  body.hide-hud #hud, body.hide-hud #mode, body.hide-hud #controls { opacity:0; pointer-events:none; }
+  #hud { position:fixed; top:16px; right:16px; text-align:right; font-size:13px; line-height:1.8;
+    color:var(--dim); pointer-events:none; }
+  #hud b { color:var(--fg); font-weight:600; }
+  #hud .state { font-size:16px; color:var(--fg); letter-spacing:.1em; }
+  #hud .born { font-size:22px; color:var(--fg); letter-spacing:.05em; }
+  #mode { position:fixed; top:16px; left:16px; font-size:12px; color:var(--dim); letter-spacing:.2em; }
+  #narration { position:fixed; left:50%; bottom:92px; transform:translateX(-50%); width:min(760px,90vw);
+    text-align:center; font-size:clamp(16px,2.4vw,24px); letter-spacing:.06em; line-height:1.7;
+    opacity:0; transition:opacity 1.2s; text-shadow:0 0 18px rgba(0,0,0,.95); pointer-events:none; }
+  #center { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
+    padding:16px; font-weight:200; font-size:clamp(22px,4vw,40px); letter-spacing:.2em; line-height:2;
+    opacity:0; transition:opacity 1.4s; pointer-events:none; text-shadow:0 0 24px #000, 0 0 12px #000, 0 0 4px #000; }
+  #center.on { opacity:1; }
+  body.stage-prelude #center { padding-top:24vh; }
+  #center.small { font-size:clamp(18px,3vw,32px); letter-spacing:.14em; }
+  #controls { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); display:flex; gap:10px; }
+  button { background:rgba(255,255,255,.07); color:var(--fg); border:1px solid rgba(255,255,255,.25);
+    padding:10px 20px; border-radius:999px; font-size:14px; cursor:pointer; font-family:inherit; white-space:nowrap; }
+  button:hover { background:rgba(255,255,255,.16); }
+  #intro, #weekform { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; background:#000; z-index:10; text-align:center; padding:16px; transition:opacity .8s; }
+  #intro h1 { font-weight:200; letter-spacing:.35em; font-size:clamp(28px,6vw,60px); margin:0 0 20px; }
+  #intro p { color:var(--dim); margin:0 0 36px; line-height:2; }
+  #weekform { display:none; }
+  #weekform .q { font-weight:200; letter-spacing:.1em; font-size:clamp(20px,3.4vw,32px); margin:0 0 8px; }
+  #weekform .sub { color:var(--dim); font-size:13px; margin:0 0 28px; letter-spacing:.05em; }
+  #week-input { width:min(560px,86vw); background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.3);
+    border-radius:14px; color:var(--fg); font-size:17px; padding:16px 18px; font-family:inherit; text-align:center;
+    outline:none; }
+  #week-input:focus { border-color:rgba(255,255,255,.6); }
+  #week-input::placeholder { color:#5c6489; }
+  #weekform button { margin-top:20px; }
+  @media (max-width:560px) { #hud { font-size:11px; } #controls button { padding:9px 14px; font-size:13px; } }
+</style>
+</head>
+<body class="stage-intro">
+<canvas id="gl"></canvas>
+<video id="video" playsinline muted></video>
+
+<div id="intro">
+  <h1>INNER COSMOS</h1>
+  <p>カメラの前に立ってください。<br>音が出ます。</p>
+  <button id="start">はじめる</button>
+</div>
+
+<div id="weekform">
+  <div class="q" id="week-q">今週、何してた？</div>
+  <div class="sub">それが、あなたの宇宙になります</div>
+  <input id="week-input" type="text" placeholder="例：バイト3回、課題に追われた、友達と1回遊んだ" autocomplete="off" maxlength="120">
+  <button id="week-submit">宇宙にする</button>
+</div>
+
+<div id="center"></div>
+<div id="mode" class="ui">BODY</div>
+<div id="hud" class="ui">
+  <div class="born"><span id="h-born">0</span> <span style="font-size:12px;color:var(--dim)">stars born</span></div>
+  <div class="state" id="h-state">—</div>
+  <div>鼓動 <b id="h-hr">—</b> bpm</div>
+  <div>緊張 <b id="h-st">—</b></div>
+  <div id="h-week">—</div>
+  <div id="h-src">—</div>
+  <div id="h-real" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(127,216,255,.25);font-size:11px;line-height:1.5">外の宇宙と接続中…</div>
+</div>
+<div id="narration"></div>
+<div id="controls" class="ui">
+  <button id="btn-mode">内側へ潜る</button>
+  <button id="btn-talk">宇宙の声を聴く</button>
+</div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import * as Tone from 'https://cdn.jsdelivr.net/npm/tone@14.8.49/+esm';
+
+/* ============================================================
+   設定（URLパラメータで上書きできる）
+   例: ?liface=http://localhost:8000/analyze&llm=http://localhost:11434/api/generate&model=gemma3
+   ============================================================ */
+const params = new URLSearchParams(location.search);
+const CONFIG = {
+  LIFACE_URL: params.get('liface') || 'http://localhost:8000/analyze',
+  LIFACE_FORMAT: params.get('lifaceFormat') || 'form',   // 'form' = multipart(file) / 'json' = {image: dataURL}
+  LIFACE_INTERVAL_MS: 2000,
+  LLM_URL: params.get('llm') || 'http://localhost:11434/api/generate', // '/v1/' を含むURLはOpenAI互換として扱う
+  LLM_MODEL: params.get('model') || 'gemma3',
+  NARRATE_INTERVAL_MS: 15000,
+  PARTICLES: 6000,
+  SPARKS: 700,
+  ENDING_TEXT: '私たちは宇宙を見上げているのではない。<br>私たちの日々が、身体が、宇宙になる。',
+  // データ環境（Supabase）。例: ?supaUrl=https://xxxx.supabase.co&supaKey=（anonキー）
+  // 未指定なら何も送らない（デモ動作に影響しない）
+  SUPABASE_URL: params.get('supaUrl') || '',
+  SUPABASE_KEY: params.get('supaKey') || '',
+};
+
+/* ============================================================
+   「今週、何してた？」→ 宇宙の中身（この作品の核）
+   一言の生活が、そのままカテゴリ別の惑星になる
+   ============================================================ */
+const CATS = {
+  work:   { color: 0xffa94d, label: 'バイト・仕事', words: ['バイト','仕事','シフト','派遣','ドンキ','ドン・キホーテ','労働','勤務','出勤'] },
+  study:  { color: 0x4dabf7, label: '課題・勉強',   words: ['課題','授業','テスト','レポート','勉強','ゼミ','講義','試験','研究','大学','学校'] },
+  social: { color: 0xff6b9d, label: '友達・遊び',   words: ['友達','友人','遊','デート','飲み','パーティ','旅行','出かけ'] },
+  rest:   { color: 0x69db7c, label: '休み・睡眠',   words: ['休','寝','睡眠','のんびり','リラックス','だらだら'] },
+  other:  { color: 0xced4da, label: 'その他',       words: [] },
+};
+function guessCategory(text) {
+  for (const key of ['work', 'study', 'social', 'rest']) {
+    if (CATS[key].words.some((w) => text.includes(w))) return key;
+  }
+  return 'other';
+}
+function parseWeek(raw) {
+  const parts = raw.split(/[、,。\n・/／]+/).map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return [{ text: raw.trim() || '何もない1週間', category: 'other', weight: 0.5 }];
+  return parts.slice(0, 8).map((p) => {
+    const m = p.match(/(\d+)\s*(回|個|件|時間|日)/);
+    const mult = m ? clamp(parseInt(m[1], 10), 1, 9) : 1;
+    return { text: p.slice(0, 16), category: guessCategory(p), weight: clamp(0.4 + mult * 0.16, 0.4, 1.9) };
+  });
+}
+
+/* ============================================================
+   LIFACEのレスポンス → 宇宙の入力
+   ★ LIFACE APIの返り値の形が違う場合は、ここだけ書き換える
+   ============================================================ */
+function mapLiface(j) {
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const v = k.split('.').reduce((o, p) => (o == null ? undefined : o[p]), j);
+      if (typeof v === 'number' && isFinite(v)) return v;
+    }
+    return null;
+  };
+  return {
+    heartRate: pick('heart_rate', 'heartRate', 'bpm', 'hr', 'vitals.heart_rate', 'result.heart_rate'),
+    stress:    norm(pick('stress', 'stress_level', 'stressLevel', 'vitals.stress', 'result.stress')),
+  };
+}
+function norm(v) { if (v == null) return null; return v > 1 ? Math.min(v / 100, 1) : Math.max(v, 0); }
+
+/* ============================================================
+   状態
+   ============================================================ */
+const bodyState = { heartRate: 72, stress: 0.25, source: 'DEMO' };
+const view = { heartRate: 72, stress: 0.25 };
+let activity = 0, bhStrength = 0, stressBoost = 0, aiOnline = false;
+let stage = 'intro';          // intro → weekform → prelude → live
+let mode = 'SEED';            // SEED(誕生前) / BODY / DIVE / OUT
+let ending = false, starsBorn = 0, rotAngle = 0;
+let weekItems = [], weekDensity = 0, weekSummary = '';
+const MODES = ['BODY', 'DIVE', 'OUT'];
+const CAPTIONS = {
+  BODY: '動くたびに、今週の出来事が星になっていく。',
+  DIVE: '内側へ潜ると、そこにも星の網が広がっている。',
+  OUT:  '遠くから見れば、あなたの1週間も一つの星。',
+};
+const MODE_BUTTON = { BODY: '内側へ潜る', DIVE: '外へ離れる', OUT: '身体へ戻る' };
+const $ = (id) => document.getElementById(id);
+function setStage(s) { stage = s; document.body.classList.remove('stage-intro', 'stage-prelude', 'stage-live'); document.body.classList.add('stage-' + s); }
+
+/* ============================================================
+   Three.js
+   ============================================================ */
+const canvas = $('gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.05, 2000);
+camera.position.set(0, 0, 12);
+const lookAt = new THREE.Vector3();
+
+const VS = `
+  attribute float aSize; attribute vec3 aColor;
+  uniform float uPulse; uniform float uPixelRatio;
+  varying vec3 vColor;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = min(aSize * uPixelRatio * (1.0 + uPulse * 0.7) * (28.0 / -mv.z), 90.0);
+    vColor = aColor;
+  }`;
+const FS = `
+  uniform vec3 uTint; uniform float uTintAmt; uniform float uOpacity; uniform float uPulse;
+  varying vec3 vColor;
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    float a = smoothstep(0.5, 0.0, d); a *= a;
+    vec3 c = mix(vColor, uTint, uTintAmt) * (0.75 + uPulse * 0.9);
+    gl_FragColor = vec4(c, a * uOpacity);
+  }`;
+function pointMaterial(tintAmt = 0.35) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uPulse: { value: 0 }, uPixelRatio: { value: renderer.getPixelRatio() },
+      uTint: { value: new THREE.Color(0.75, 0.9, 1) }, uTintAmt: { value: tintAmt }, uOpacity: { value: 1 },
+    },
+    vertexShader: VS, fragmentShader: FS, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+}
+function pointsFrom(p, c, s, mat) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  geo.setAttribute('aColor', new THREE.BufferAttribute(c, 3));
+  geo.setAttribute('aSize', new THREE.BufferAttribute(s, 1));
+  const pts = new THREE.Points(geo, mat); pts.frustumCulled = false;
+  return pts;
+}
+const g = () => (Math.random() + Math.random() + Math.random() - 1.5);
+const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+const tmpColor = new THREE.Color();
+
+/* ---------- 身体（=宇宙）の粒子 ---------- */
+const N = CONFIG.PARTICLES;
+const pos = new Float32Array(N * 3), galaxy = new Float32Array(N * 3), jit = new Float32Array(N * 3);
+const seed = new Float32Array(N), col = new Float32Array(N * 3), size = new Float32Array(N);
+for (let i = 0; i < N; i++) {
+  const arm = i % 3, r = Math.pow(Math.random(), 0.7) * 5.5;
+  const a = r * 1.1 + arm * 2.094 + g() * 0.5;
+  galaxy[i*3]   = Math.cos(a) * r + g() * 0.25;
+  galaxy[i*3+1] = Math.sin(a) * r * 0.55 + g() * 0.25;
+  galaxy[i*3+2] = g() * 0.4;
+  pos[i*3] = g() * 0.2; pos[i*3+1] = g() * 0.2; pos[i*3+2] = g() * 0.2;
+  jit[i*3] = g() * 0.07; jit[i*3+1] = g() * 0.07; jit[i*3+2] = g() * 0.5;
+  seed[i] = Math.random();
+  const warm = Math.random() < 0.12;
+  tmpColor.setHSL(warm ? 0.08 + Math.random() * 0.05 : 0.55 + Math.random() * 0.15, 0.7, 0.55 + Math.random() * 0.25);
+  col[i*3] = tmpColor.r; col[i*3+1] = tmpColor.g; col[i*3+2] = tmpColor.b;
+  size[i] = Math.random() < 0.02 ? 5 + Math.random() * 3 : 0.8 + Math.random() * 2.2;
+}
+const bodyMat = pointMaterial();
+const bodyPoints = pointsFrom(pos, col, size, bodyMat);
+const bodyGeo = bodyPoints.geometry;
+scene.add(bodyPoints);
+
+/* ---------- 身体の中のシナプス（近い粒子同士の線） ---------- */
+const MAXSEG = 700;
+const linePos = new Float32Array(MAXSEG * 6);
+const lineGeo = new THREE.BufferGeometry();
+lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
+const lineMat = new THREE.LineBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.1,
+  blending: THREE.AdditiveBlending, depthWrite: false });
+const lines = new THREE.LineSegments(lineGeo, lineMat); lines.frustumCulled = false;
+scene.add(lines);
+
+/* ---------- 動きから生まれる星（この作品の核） ---------- */
+const S = CONFIG.SPARKS;
+const sPos = new Float32Array(S * 3), sVel = new Float32Array(S * 3), sBase = new Float32Array(S * 3);
+const sCol = new Float32Array(S * 3), sSize = new Float32Array(S), sBaseSize = new Float32Array(S);
+const sAge = new Float32Array(S), sLife = new Float32Array(S), sFade = new Float32Array(S);
+const sGen = new Uint32Array(S), sAlive = new Uint8Array(S);
+let sHead = 0, lastSpark = -1, lastSparkTime = -10, genCounter = 1;
+const sparkMat = pointMaterial(0);
+const sparkPoints = pointsFrom(sPos, sCol, sSize, sparkMat);
+const sparkGeo = sparkPoints.geometry;
+scene.add(sparkPoints);
+
+/* 星同士をつなぐ星座の線 */
+const L = 900;
+const lA = new Int32Array(L), lB = new Int32Array(L), lGA = new Uint32Array(L), lGB = new Uint32Array(L);
+let lHead = 0;
+const linkPos = new Float32Array(L * 6), linkCol = new Float32Array(L * 6);
+const linkGeo = new THREE.BufferGeometry();
+linkGeo.setAttribute('position', new THREE.BufferAttribute(linkPos, 3));
+linkGeo.setAttribute('color', new THREE.BufferAttribute(linkCol, 3));
+const linkLines = new THREE.LineSegments(linkGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true,
+  opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }));
+linkLines.frustumCulled = false;
+scene.add(linkLines);
+
+function addLink(a, b) {
+  const k = lHead; lHead = (lHead + 1) % L;
+  lA[k] = a; lB[k] = b; lGA[k] = sGen[a]; lGB[k] = sGen[b];
+}
+function d2s(a, b) {
+  const dx = sPos[a*3] - sPos[b*3], dy = sPos[a*3+1] - sPos[b*3+1], dz = sPos[a*3+2] - sPos[b*3+2];
+  return dx*dx + dy*dy + dz*dz;
+}
+function spawnSpark(x, y, z, strength, vx = 0, vy = 0) {
+  const i = sHead; sHead = (sHead + 1) % S;
+  sAlive[i] = 1; sGen[i] = genCounter++; sAge[i] = 0; sLife[i] = 10 + Math.random() * 6;
+  sPos[i*3] = x; sPos[i*3+1] = y; sPos[i*3+2] = z;
+  sVel[i*3] = vx + g() * 0.35; sVel[i*3+1] = vy + g() * 0.35; sVel[i*3+2] = g() * 0.2;
+  const h = view.stress > 0.6 ? 0.9 + Math.random() * 0.08 : 0.5 + clamp(y / 10 + 0.5, 0, 1) * 0.2 + Math.random() * 0.04;
+  tmpColor.setHSL(h % 1, 0.85, 0.6 + Math.random() * 0.2);
+  sBase[i*3] = tmpColor.r; sBase[i*3+1] = tmpColor.g; sBase[i*3+2] = tmpColor.b;
+  sBaseSize[i] = 3 + strength * 5 + Math.random() * 2;
+  // 星座：直前に生まれた星と、近くの星につなぐ
+  if (lastSpark >= 0 && sAlive[lastSpark] && time - lastSparkTime < 0.4 && d2s(i, lastSpark) < 2.5) addLink(i, lastSpark);
+  let best = -1, bd = 1.4;
+  for (let k = 2; k < 40; k++) {
+    const j = (i - k + S) % S;
+    if (!sAlive[j]) continue;
+    const d = d2s(i, j);
+    if (d < bd) { bd = d; best = j; }
+  }
+  if (best >= 0 && Math.random() < 0.55) addLink(i, best);
+  lastSpark = i; lastSparkTime = time; starsBorn++;
+  sparkNote(x, y, strength);
+}
+function clearSparks() {
+  sAlive.fill(0); sCol.fill(0); sSize.fill(0); lGA.fill(0); lastSpark = -1; starsBorn = 0;
+}
+
+function updateSparks(dt) {
+  const damp = Math.exp(-dt * 1.2), glow = ending ? 1.7 : 1;
+  for (let i = 0; i < S; i++) {
+    if (!sAlive[i]) continue;
+    const i3 = i * 3;
+    const age = (sAge[i] += dt), life = sLife[i];
+    if (age > life) { sAlive[i] = 0; sSize[i] = 0; sCol[i3] = sCol[i3+1] = sCol[i3+2] = 0; continue; }
+    let vx = sVel[i3] * damp, vy = sVel[i3+1] * damp, vz = sVel[i3+2] * damp;
+    if (age > 2.5) { // 生まれた星は、やがて宇宙の渦に加わっていく
+      const pull = Math.min((age - 2.5) * 0.05, 0.3), x = sPos[i3], y = sPos[i3+1];
+      vx += (-y * 0.3 - x * 0.1) * pull * dt * 4;
+      vy += ( x * 0.3 - y * 0.1) * pull * dt * 4;
+    }
+    sVel[i3] = vx; sVel[i3+1] = vy; sVel[i3+2] = vz;
+    sPos[i3] += vx * dt; sPos[i3+1] += vy * dt; sPos[i3+2] += vz * dt;
+    const fade = Math.min(age * 6, 1) * Math.min((life - age) / 3, 1);
+    sFade[i] = fade;
+    const f = fade * glow;
+    sCol[i3] = sBase[i3] * f; sCol[i3+1] = sBase[i3+1] * f; sCol[i3+2] = sBase[i3+2] * f;
+    sSize[i] = sBaseSize[i] * (1 + 2.5 * Math.exp(-age * 5)) * (0.6 + fade * 0.4);
+  }
+  sparkGeo.attributes.position.needsUpdate = true;
+  sparkGeo.attributes.aColor.needsUpdate = true;
+  sparkGeo.attributes.aSize.needsUpdate = true;
+
+  let n = 0;
+  for (let k = 0; k < L; k++) {
+    if (!lGA[k]) continue;
+    const a = lA[k], b = lB[k];
+    if (!sAlive[a] || !sAlive[b] || sGen[a] !== lGA[k] || sGen[b] !== lGB[k]) { lGA[k] = 0; continue; }
+    const f = Math.min(sFade[a], sFade[b]) * 0.55 * glow, o = n * 6;
+    linkPos[o] = sPos[a*3]; linkPos[o+1] = sPos[a*3+1]; linkPos[o+2] = sPos[a*3+2];
+    linkPos[o+3] = sPos[b*3]; linkPos[o+4] = sPos[b*3+1]; linkPos[o+5] = sPos[b*3+2];
+    for (let c = 0; c < 3; c++) { linkCol[o+c] = sBase[a*3+c] * f; linkCol[o+3+c] = sBase[b*3+c] * f; }
+    n++;
+  }
+  linkGeo.setDrawRange(0, n * 2);
+  linkGeo.attributes.position.needsUpdate = true;
+  linkGeo.attributes.color.needsUpdate = true;
+}
+
+/* ---------- 宇宙の大規模構造（コズミックウェブ） ---------- */
+function buildWeb() {
+  const nodes = [];
+  for (let i = 0; i < 60; i++) nodes.push(new THREE.Vector3(g(), g(), g()).normalize().multiplyScalar(Math.cbrt(Math.random()) * 50));
+  const edges = [];
+  nodes.forEach((n, i) => {
+    nodes.map((m, j) => [j, n.distanceToSquared(m)]).filter(([j]) => j !== i)
+      .sort((a, b) => a[1] - b[1]).slice(0, 3).forEach(([j]) => edges.push([i, j]));
+  });
+  const M = 9000, p = new Float32Array(M * 3), c = new Float32Array(M * 3), s = new Float32Array(M);
+  const v = new THREE.Vector3();
+  for (let i = 0; i < M; i++) {
+    if (Math.random() < 0.3) {
+      v.copy(nodes[Math.floor(Math.random() * nodes.length)]).add(new THREE.Vector3(g(), g(), g()).multiplyScalar(2.2));
+    } else {
+      const [a, b] = edges[Math.floor(Math.random() * edges.length)];
+      v.lerpVectors(nodes[a], nodes[b], Math.random()).add(new THREE.Vector3(g(), g(), g()).multiplyScalar(0.9));
+    }
+    p[i*3] = v.x; p[i*3+1] = v.y; p[i*3+2] = v.z;
+    tmpColor.setHSL(0.62 + Math.random() * 0.15, 0.6, 0.45 + Math.random() * 0.3);
+    c[i*3] = tmpColor.r; c[i*3+1] = tmpColor.g; c[i*3+2] = tmpColor.b;
+    s[i] = 2 + Math.random() * 4;
+  }
+  const mat = pointMaterial(0); mat.uniforms.uOpacity.value = 0;
+  return pointsFrom(p, c, s, mat);
+}
+const web = buildWeb();
+const webGroup = new THREE.Group(); webGroup.add(web); scene.add(webGroup);
+
+/* ---------- 背景の星 ---------- */
+(() => {
+  const M = 1500, p = new Float32Array(M * 3), c = new Float32Array(M * 3), s = new Float32Array(M);
+  for (let i = 0; i < M; i++) {
+    const v = new THREE.Vector3(g(), g(), g()).normalize().multiplyScalar(300 + Math.random() * 300);
+    p[i*3] = v.x; p[i*3+1] = v.y; p[i*3+2] = v.z;
+    c[i*3] = c[i*3+1] = c[i*3+2] = 0.5 + Math.random() * 0.5; s[i] = 20 + Math.random() * 30;
+  }
+  const mat = pointMaterial(0); mat.uniforms.uOpacity.value = 0.6;
+  scene.add(pointsFrom(p, c, s, mat));
+})();
+
+/* ---------- ブラックホール（緊張が高いと胸に生まれる） ---------- */
+const bh = new THREE.Group();
+const bhCore = new THREE.Mesh(new THREE.SphereGeometry(0.45, 32, 32), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+const bhRing = new THREE.Mesh(new THREE.RingGeometry(0.55, 1.15, 96),
+  new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+bhRing.rotation.x = 1.25;
+bh.add(bhRing, bhCore); bh.scale.setScalar(0.001); scene.add(bh);
+
+/* ---------- 今週の惑星（生活のカテゴリごとに浮かぶ） ---------- */
+const planetsGroup = new THREE.Group(); scene.add(planetsGroup);
+function makeLabelSprite(text, colorHex) {
+  const cnv = document.createElement('canvas'); cnv.width = 512; cnv.height = 128;
+  const ctx = cnv.getContext('2d');
+  ctx.font = '600 44px "Hiragino Sans","Noto Sans JP",system-ui,sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.95)'; ctx.shadowBlur = 16;
+  ctx.fillStyle = '#' + colorHex.toString(16).padStart(6, '0');
+  ctx.fillText(text, 256, 64);
+  const tex = new THREE.CanvasTexture(cnv);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 });
+  const sp = new THREE.Sprite(mat); sp.scale.set(3.4, 0.85, 1);
+  return sp;
+}
+function buildPlanet(item, index, total) {
+  const angle = (index / total) * Math.PI * 2 + g() * 0.3;
+  const radius = 6.5 + (index % 2) * 1.7;
+  const center = new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.55, g() * 0.6);
+  const M = Math.round(90 + item.weight * 90);
+  const p = new Float32Array(M * 3), c = new Float32Array(M * 3), s = new Float32Array(M);
+  const baseColor = new THREE.Color(CATS[item.category].color);
+  const R = 0.5 + item.weight * 0.4;
+  for (let i = 0; i < M; i++) {
+    const v = new THREE.Vector3(g(), g(), g()).normalize().multiplyScalar(Math.cbrt(Math.random()) * R);
+    p[i*3] = center.x + v.x; p[i*3+1] = center.y + v.y; p[i*3+2] = center.z + v.z * 0.6;
+    tmpColor.copy(baseColor).offsetHSL((Math.random() - 0.5) * 0.03, 0, (Math.random() - 0.5) * 0.18);
+    c[i*3] = tmpColor.r; c[i*3+1] = tmpColor.g; c[i*3+2] = tmpColor.b;
+    s[i] = 1.6 + Math.random() * 2.6;
+  }
+  const mat = pointMaterial(0); mat.uniforms.uOpacity.value = 0;
+  const pts = pointsFrom(p, c, s, mat);
+  const label = makeLabelSprite(item.text, CATS[item.category].color);
+  label.position.copy(center).add(new THREE.Vector3(0, R + 0.95, 0));
+  planetsGroup.add(pts); planetsGroup.add(label);
+  return { ...item, center, points: pts, label, bornAt: time };
+}
+function clearWeek() {
+  weekItems.forEach((it) => { planetsGroup.remove(it.points); it.points.geometry.dispose(); planetsGroup.remove(it.label); it.label.material.map.dispose(); it.label.material.dispose(); });
+  weekItems = [];
+}
+function applyWeek(items) {
+  clearWeek();
+  weekItems = items.map((it, idx) => buildPlanet(it, idx, items.length));
+  weekDensity = clamp(items.reduce((s, it) => s + it.weight, 0) / 6, 0, 1);
+  const counts = {};
+  items.forEach((it) => (counts[it.category] = (counts[it.category] || 0) + 1));
+  weekSummary = Object.entries(counts).map(([k, n]) => `${CATS[k].label}${n > 1 ? '×' + n : ''}`).join(' ／ ');
+  $('h-week').textContent = '今週: ' + weekSummary;
+  logWeekToSupabase(items, weekDensity, weekSummary);
+}
+/* ---------- データ環境（Supabase）：宇宙が生まれるたびに1行記録する ----------
+   接続していなくても何も起きない（デモの動作には無関係）。
+   テーブル定義は README_DEPLOY.md 参照。 */
+async function logWeekToSupabase(items, density, summary) {
+  if (!CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_KEY) return;
+  try {
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 4000);
+    await fetch(CONFIG.SUPABASE_URL.replace(/\/$/, '') + '/rest/v1/week_submissions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': CONFIG.SUPABASE_KEY,
+        'Authorization': 'Bearer ' + CONFIG.SUPABASE_KEY,
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        raw_items: items.map((it) => ({ text: it.text, category: it.category, weight: it.weight })),
+        summary, density,
+      }),
+      signal: ctl.signal,
+    });
+    clearTimeout(to);
+  } catch (e) { /* 記録できなくても宇宙の体験は止めない */ }
+}
+let planetOpacity = 0;
+function updateWeek(dt) {
+  planetsGroup.rotation.y += dt * (0.03 + activity * 0.15);
+  const target = mode === 'DIVE' ? 0.12 : mode === 'OUT' ? 1 : ending ? 0.2 : 0.6;
+  planetOpacity += (target - planetOpacity) * (1 - Math.exp(-dt * 1.1));
+  for (const it of weekItems) {
+    const age = Math.min((time - it.bornAt) / 2.2, 1);
+    const op = planetOpacity * age;
+    it.points.material.uniforms.uOpacity.value = op;
+    it.points.material.uniforms.uPulse.value = bhStrength * 0.3;
+    it.label.material.opacity = op * 0.85;
+  }
+}
+
+/* ============================================================
+   カメラ：動き検出（フレーム差分）＋ 人物シルエット（MediaPipe）
+   ============================================================ */
+const video = $('video');
+let videoReady = false, segmenter = null, lastSeg = 0, lastMotion = 0;
+const WORLD_H = 10; let WORLD_W = WORLD_H * 4 / 3;
+const GX = 96, GY = 72;
+const silBuf = new Float32Array(GX * GY * 2);
+let silCount = 0;
+const centroid = { x: 0, y: 0 };
+const cellX = (gx) => (0.5 - (gx + 0.5) / GX) * WORLD_W;   // 鏡のように左右反転
+const cellY = (gy) => (0.5 - (gy + 0.5) / GY) * WORLD_H;
+
+const mcan = document.createElement('canvas'); mcan.width = GX; mcan.height = GY;
+const mctx = mcan.getContext('2d', { willReadFrequently: true });
+const lumPrev = new Float32Array(GX * GY), motion = new Float32Array(GX * GY);
+let motionPrimed = false;
+function detectMotion(now) {
+  if (!videoReady || video.readyState < 2 || now - lastMotion < 33) return false;
+  lastMotion = now;
+  mctx.drawImage(video, 0, 0, GX, GY);
+  const d = mctx.getImageData(0, 0, GX, GY).data;
+  let sum = 0;
+  for (let k = 0; k < GX * GY; k++) {
+    const lum = (d[k*4] * 0.299 + d[k*4+1] * 0.587 + d[k*4+2] * 0.114) / 255;
+    const m = motionPrimed ? Math.abs(lum - lumPrev[k]) : 0;
+    lumPrev[k] = lum; motion[k] = m; sum += m;
+  }
+  motionPrimed = true;
+  const a = Math.min(sum / (GX * GY) * 18, 1);
+  activity += (a - activity) * 0.25;
+  return true;
+}
+let spawnBudget = 0;
+const cand = new Int32Array(GX * GY);
+function spawnFromMotion(dt) {
+  spawnBudget = Math.min(spawnBudget + dt * 35, 6);
+  let c = 0;
+  for (let k = 0; k < GX * GY; k++) if (motion[k] > 0.09) cand[c++] = k;
+  if (c < 3) return;
+  const n = Math.min(Math.floor(spawnBudget), 1 + Math.floor(c / 40), 5);
+  spawnBudget -= n;
+  for (let q = 0; q < n; q++) {
+    const k = cand[Math.floor(Math.random() * c)], gx = k % GX, gy = Math.floor(k / GX);
+    spawnSpark(cellX(gx) + g() * 0.08, cellY(gy) + g() * 0.08, g() * 0.3, Math.min(motion[k] * 4, 1));
+  }
+}
+
+async function initSegmenter() {
+  const V = '0.10.14';
+  try {
+    const mp = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${V}/vision_bundle.mjs`);
+    const fs = await mp.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${V}/wasm`);
+    const opts = (delegate) => ({
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+        delegate,
+      },
+      runningMode: 'VIDEO', outputCategoryMask: false, outputConfidenceMasks: true,
+    });
+    try { segmenter = await mp.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch { segmenter = await mp.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+  } catch (e) { console.warn('segmenter unavailable — 動き検出だけで続行', e); }
+}
+function processMask(mask, mw, mh) {
+  let c = 0, sx = 0, sy = 0;
+  for (let gy = 0; gy < GY; gy++) for (let gx = 0; gx < GX; gx++) {
+    const v = mask[Math.floor((gy + 0.5) / GY * mh) * mw + Math.floor((gx + 0.5) / GX * mw)];
+    if (v > 0.5) { const x = cellX(gx), y = cellY(gy); silBuf[c*2] = x; silBuf[c*2+1] = y; sx += x; sy += y; c++; }
+  }
+  silCount = c;
+  if (c > 0) { centroid.x = sx / c; centroid.y = sy / c; }
+}
+function runSeg(now) {
+  if (!segmenter || !videoReady || video.readyState < 2 || now - lastSeg < 40) return;
+  lastSeg = now;
+  try {
+    segmenter.segmentForVideo(video, now, (res) => {
+      const m = res.confidenceMasks && res.confidenceMasks[0];
+      if (m) processMask(m.getAsFloat32Array(), m.width, m.height);
+    });
+  } catch (e) { /* 1フレーム失敗しても続行 */ }
+}
+
+/* ---------- 指・マウスでなぞっても星が生まれる（カメラなしの端末用） ---------- */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), zPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hit = new THREE.Vector3();
+let pointerDown = false, lastPointerSpawn = 0, lastPointerTime = -10;
+function pointerSpawn(e) {
+  if (stage !== 'live') return;
+  lastPointerTime = time;
+  const now = performance.now();
+  if (now - lastPointerSpawn < 45) return;
+  lastPointerSpawn = now;
+  ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  if (ray.ray.intersectPlane(zPlane, hit)) {
+    spawnSpark(hit.x + g() * 0.1, hit.y + g() * 0.1, g() * 0.2, 0.7);
+    activity = Math.min(activity + 0.06, 1);
+  }
+}
+canvas.addEventListener('pointerdown', (e) => { pointerDown = true; if (stage === 'prelude') skipPrelude = true; pointerSpawn(e); });
+canvas.addEventListener('pointermove', (e) => { if (pointerDown) pointerSpawn(e); });
+addEventListener('pointerup', () => (pointerDown = false));
+addEventListener('pointercancel', () => (pointerDown = false));
+
+/* カメラも操作もないときは「見えない手」が星を生む（デモの保険） */
+let ghostAcc = 0;
+function ghostHand(dt) {
+  ghostAcc += dt * 14;
+  const x = Math.sin(time * 0.9) * 4 + Math.sin(time * 2.3) * 0.8, y = Math.sin(time * 1.3) * 2.6;
+  while (ghostAcc >= 1) { ghostAcc -= 1; spawnSpark(x + g() * 0.25, y + g() * 0.25, g() * 0.3, 0.5); }
+  activity += (0.3 - activity) * 0.05;
+}
+
+/* ============================================================
+   LIFACE API（顔 → 鼓動・緊張）
+   ============================================================ */
+const snap = document.createElement('canvas'); snap.width = 320; snap.height = 240;
+let lifaceFails = 0, lifaceBusy = false;
+async function lifaceTick() {
+  if (!videoReady || lifaceBusy) return;
+  lifaceBusy = true;
+  try {
+    snap.getContext('2d').drawImage(video, 0, 0, snap.width, snap.height);
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 1800);
+    let res;
+    if (CONFIG.LIFACE_FORMAT === 'json') {
+      res = await fetch(CONFIG.LIFACE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: snap.toDataURL('image/jpeg', 0.8) }), signal: ctl.signal });
+    } else {
+      const blob = await new Promise(r => snap.toBlob(r, 'image/jpeg', 0.8));
+      const fd = new FormData(); fd.append('file', blob, 'face.jpg');
+      res = await fetch(CONFIG.LIFACE_URL, { method: 'POST', body: fd, signal: ctl.signal });
+    }
+    clearTimeout(to);
+    if (!res.ok) throw new Error(res.status);
+    const m = mapLiface(await res.json());
+    if (m.heartRate != null) bodyState.heartRate = clamp(m.heartRate, 40, 180);
+    if (m.stress != null) bodyState.stress = m.stress;
+    bodyState.source = 'LIFACE'; lifaceFails = 0;
+  } catch (e) {
+    if (++lifaceFails >= 2) bodyState.source = 'DEMO';
+  } finally { lifaceBusy = false; }
+}
+function demoVitals(t) {
+  bodyState.heartRate = 66 + activity * 34 + Math.sin(t * 0.3) * 4;
+  bodyState.stress = Math.min(0.12 + activity * 0.5, 1);
+}
+
+/* ============================================================
+   ローカルAI（宇宙の声）
+   ============================================================ */
+function fallbackLine() {
+  const hr = Math.round(view.heartRate);
+  const week = weekSummary ? `（${weekSummary}）` : '';
+  const pools = bhStrength > 0.3 ? [`詰め込まれた1週間${week}が、宇宙の中心に重力を生んだ。`, '張りつめた身体が、光を飲み込み始めている。']
+    : activity > 0.2 ? [`あなたの動きが、${starsBorn}個の星を生んだ。`, `今週の出来事${week}に、新しい星が加わった。`, '動くたびに、この宇宙のどこかで星が灯る。']
+    : [`毎分${hr}回の鼓動が、この宇宙を揺らしている。`, `あなたの1週間${week}が、静かに浮かんでいる。`, 'あなたが止まると、宇宙も耳を澄ませる。'];
+  return pools[Math.floor(Math.random() * pools.length)];
+}
+async function narrate() {
+  if (stage !== 'live' || ending) return;
+  const prompt = 'あなたは宇宙を語る詩人です。目の前の人の「今週の生活」と、今この瞬間の身体の動き・鼓動が、' +
+    'いまこの宇宙に起こした出来事を、日本語の一文（45字以内）で語ってください。' +
+    '「あなたの〇〇が、〜を生んだ」のように、日々の生活と身体が宇宙を動かしていることが伝わる語り口にしてください。' +
+    '病気や体調についての診断・助言は絶対にしないでください。前置きなしで一文だけを出力してください。\n' +
+    `今週の生活: ${weekSummary || '不明'}\n生まれた星の数: ${starsBorn}\n動きの大きさ: ${Math.round(activity * 100)}/100\n鼓動: ${Math.round(view.heartRate)}bpm\n` +
+    `緊張: ${Math.round(view.stress * 100)}/100\nブラックホール: ${bhStrength > 0.3 ? 'あり' : 'なし'}\n視点: ${mode}`;
+  let text = null;
+  try {
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 12000);
+    if (CONFIG.LLM_URL.includes('/v1/')) {
+      const r = await fetch(CONFIG.LLM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
+        body: JSON.stringify({ model: CONFIG.LLM_MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.9, max_tokens: 120 }) });
+      const j = await r.json(); text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+    } else {
+      const r = await fetch(CONFIG.LLM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
+        body: JSON.stringify({ model: CONFIG.LLM_MODEL, prompt, stream: false, options: { temperature: 0.9, num_predict: 120 } }) });
+      const j = await r.json(); text = j.response;
+    }
+    clearTimeout(to);
+    aiOnline = !!text;
+  } catch (e) { aiOnline = false; }
+  if (text) {
+    text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim().split('\n').find(l => l.trim()) || '';
+    text = text.replace(/^[「"『]+|[」"』]+$/g, '').trim();
+  }
+  if (!ending) showNarration(text || fallbackLine());
+}
+const narrationEl = $('narration');
+let narrTimer = null;
+function showNarration(t) {
+  narrationEl.textContent = t; narrationEl.style.opacity = 1;
+  clearTimeout(narrTimer); narrTimer = setTimeout(() => (narrationEl.style.opacity = 0), 7000);
+}
+const centerEl = $('center');
+function showCenter(html, small = false) { centerEl.innerHTML = html; centerEl.classList.toggle('small', small); centerEl.classList.add('on'); }
+function hideCenter() { centerEl.classList.remove('on'); }
+
+/* ============================================================
+   音（HACK SONIC）：鼓動＝キック、生まれた星＝音、高さ＝音程、左右＝定位
+   ============================================================ */
+let audio = null, lastSparkNote = 0, lastAmbient = 0;
+const CALM = ['C4', 'D4', 'E4', 'G4', 'A4', 'C5', 'D5', 'E5', 'G5', 'A5', 'C6', 'D6'];
+const TENSE = ['C4', 'Db4', 'Eb4', 'Gb4', 'G4', 'Bb4', 'C5', 'Db5', 'Eb5', 'Gb5', 'G5', 'Bb5'];
+async function initAudio() {
+  await Tone.start();
+  const reverb = new Tone.Reverb({ decay: 8, wet: 0.5 }).toDestination();
+  const panner = new Tone.Panner(0).connect(reverb);
+  const kick = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4,
+    envelope: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.2 }, volume: -10 }).toDestination();
+  const bell = new Tone.PolySynth(Tone.FMSynth, { harmonicity: 3, modulationIndex: 4,
+    envelope: { attack: 0.005, decay: 1.2, sustain: 0, release: 1.6 }, volume: -18 });
+  bell.maxPolyphony = 16; bell.connect(panner);
+  const drone = new Tone.Oscillator({ frequency: 55, type: 'sine', volume: -60 }).connect(reverb).start();
+  audio = { kick, bell, drone, panner };
+}
+function sparkNote(x, y, strength) {
+  if (!audio) return;
+  const t = Tone.now();
+  if (t - lastSparkNote < 0.075) return;
+  lastSparkNote = t;
+  const scale = view.stress > 0.6 ? TENSE : CALM;
+  const idx = clamp(Math.floor((y / WORLD_H + 0.5) * scale.length), 0, scale.length - 1);
+  audio.panner.pan.rampTo(clamp(x / (WORLD_W / 2), -1, 1) * 0.8, 0.02);
+  try { audio.bell.triggerAttackRelease(scale[idx], '16n', t, 0.25 + strength * 0.5); } catch (e) {}
+}
+function onBeat() {
+  if (!audio) return;
+  const t = Tone.now();
+  audio.kick.triggerAttackRelease('A0', '16n', t, 0.9);
+  audio.kick.triggerAttackRelease('E1', '16n', t + 0.16, 0.5);
+}
+function music(t) {
+  if (!audio) return;
+  audio.drone.volume.rampTo(-60 + bhStrength * 38, 0.3);
+  audio.drone.frequency.rampTo(55 - view.stress * 15, 0.3);
+  if (stage === 'live' && t - lastAmbient > 5) {
+    lastAmbient = t;
+    try { audio.bell.triggerAttackRelease(CALM[Math.floor(Math.random() * 3)], '2n', undefined, 0.12); } catch (e) {}
+  }
+}
+
+/* ============================================================
+   更新
+   ============================================================ */
+let phase = 0;
+function heartbeat(dt) {
+  const prev = phase; phase += dt * view.heartRate / 60;
+  if (Math.floor(phase) !== Math.floor(prev)) onBeat();
+  const p = phase % 1;
+  return Math.exp(-p * 9) + (p > 0.18 ? 0.5 * Math.exp(-(p - 0.18) * 12) : 0);
+}
+const hasBody = () => silCount > 150;
+function chest() { return hasBody() ? { x: centroid.x, y: centroid.y + 1.2 } : { x: 0, y: 0 }; }
+
+function updateBody(dt) {
+  rotAngle += dt * (0.05 + activity * 0.6);   // 動くほど宇宙が回る
+  const ca = Math.cos(rotAngle), sa = Math.sin(rotAngle);
+  const k = 1 - Math.exp(-dt * (mode === 'SEED' ? 3 : mode === 'OUT' ? 1.5 : 4));
+  const c = chest(), body = hasBody();
+  const tremble = view.stress * 0.02 + activity * 0.025;
+  for (let i = 0; i < N; i++) {
+    const i3 = i * 3;
+    let tx, ty, tz;
+    if (mode === 'SEED') { tx = jit[i3] * 2; ty = jit[i3+1] * 2; tz = jit[i3+2] * 0.2; }
+    else if (mode === 'OUT') { tx = jit[i3] * 3; ty = jit[i3+1] * 3; tz = jit[i3+2] * 0.4; }
+    else if (body) {
+      const s = Math.floor(seed[i] * silCount) * 2;
+      tx = silBuf[s] + jit[i3]; ty = silBuf[s+1] + jit[i3+1]; tz = jit[i3+2];
+    } else {
+      const gx = galaxy[i3], gy = galaxy[i3+1];
+      tx = gx * ca - gy * sa; ty = gx * sa + gy * ca; tz = galaxy[i3+2];
+    }
+    let px = pos[i3] + (tx - pos[i3]) * k + g() * tremble;
+    let py = pos[i3+1] + (ty - pos[i3+1]) * k + g() * tremble;
+    let pz = pos[i3+2] + (tz - pos[i3+2]) * k;
+    if (bhStrength > 0.02 && mode !== 'OUT' && mode !== 'SEED') {
+      const dx = c.x - px, dy = c.y - py, d2 = dx * dx + dy * dy;
+      if (d2 < 12) { const f = bhStrength * 0.035 / (d2 + 0.4); px += dx * f - dy * f * 0.8; py += dy * f + dx * f * 0.8; }
+    }
+    pos[i3] = px; pos[i3+1] = py; pos[i3+2] = pz;
+  }
+  bodyGeo.attributes.position.needsUpdate = true;
+}
+
+function updateLines() {
+  if (mode === 'OUT' || mode === 'SEED') { lineGeo.setDrawRange(0, 0); return; }
+  let s = 0; const th2 = 0.09, step = Math.floor(N / 650);
+  for (let a = 0; a < N && s < MAXSEG; a += step) {
+    const ax = pos[a*3], ay = pos[a*3+1], az = pos[a*3+2];
+    for (let b = a + step; b < N && s < MAXSEG; b += step) {
+      const dx = pos[b*3] - ax, dy = pos[b*3+1] - ay, dz = pos[b*3+2] - az;
+      if (dx*dx + dy*dy + dz*dz < th2) {
+        const o = s * 6;
+        linePos[o] = ax; linePos[o+1] = ay; linePos[o+2] = az;
+        linePos[o+3] = pos[b*3]; linePos[o+4] = pos[b*3+1]; linePos[o+5] = pos[b*3+2];
+        s++;
+      }
+    }
+  }
+  lineGeo.setDrawRange(0, s * 2);
+  lineGeo.attributes.position.needsUpdate = true;
+}
+
+const camGoal = new THREE.Vector3(), lookGoal = new THREE.Vector3(), webGoal = new THREE.Vector3();
+function updateScene(dt, pulse) {
+  const c = chest(), k = 1 - Math.exp(-dt * 1.3);
+  let bodyOp = 1, webOp = 0, webScale = 0.07, sparkOp = 1;
+  camGoal.set(0, 0, 12); lookGoal.set(0, 0, 0); webGoal.set(0, 0, 0);
+  if (mode === 'SEED') { bodyOp = 0.9; }
+  if (mode === 'DIVE') {
+    camGoal.set(c.x, c.y, 2.4); lookGoal.set(c.x, c.y, 0); webGoal.set(c.x, c.y, 0);
+    bodyOp = 0.12; webOp = 1; sparkOp = 0.5;
+  }
+  if (mode === 'OUT') { camGoal.set(0, 0, 95); webOp = 1; webScale = 1; sparkOp = 0.25; }
+  if (ending) bodyOp = Math.min(bodyOp, 0.35);
+  camera.position.lerp(camGoal, k); lookAt.lerp(lookGoal, k); camera.lookAt(lookAt);
+  webGroup.position.lerp(webGoal, k);
+  webGroup.scale.setScalar(webGroup.scale.x + (webScale - webGroup.scale.x) * k);
+  webGroup.rotation.y += dt * 0.02;
+  const wm = web.material.uniforms, bm = bodyMat.uniforms, sm = sparkMat.uniforms;
+  wm.uOpacity.value += (webOp - wm.uOpacity.value) * k;
+  bm.uOpacity.value += (bodyOp - bm.uOpacity.value) * k;
+  sm.uOpacity.value += (sparkOp - sm.uOpacity.value) * k;
+  bm.uPulse.value = mode === 'SEED' ? pulse * 1.6 : pulse; wm.uPulse.value = pulse * 0.4; sm.uPulse.value = pulse * 0.3;
+  lineMat.opacity = (0.04 + activity * 0.3 + pulse * 0.06) * bm.uOpacity.value;
+
+  const bhTarget = (mode === 'OUT' || mode === 'SEED') ? 0 : clamp((view.stress - 0.65) / 0.25, 0, 1);
+  bhStrength += (bhTarget - bhStrength) * (1 - Math.exp(-dt * 0.8));
+  bh.position.set(c.x, c.y, 0.2);
+  bh.scale.setScalar(Math.max(bhStrength * 1.3, 0.001) * (1 + pulse * 0.05));
+  bhRing.rotation.z += dt * 0.8;
+}
+
+function updateHud() {
+  const state = bhStrength > 0.3 ? 'ブラックホール発生' : view.stress > 0.5 ? '過密' : activity > 0.25 ? '活発' : '安定';
+  $('h-born').textContent = starsBorn;
+  $('h-state').textContent = state;
+  $('h-hr').textContent = Math.round(view.heartRate);
+  $('h-st').textContent = Math.round(view.stress * 100);
+  const bodySrc = bodyState.source === 'LIFACE' ? 'LIFACE' : 'デモ';
+  const eye = videoReady ? (segmenter ? 'カメラ' : 'カメラ(動きのみ)') : 'タッチ';
+  $('h-src').textContent = `入力: ${eye} ／ 身体: ${bodySrc} ／ 声: ${aiOnline ? 'ローカルAI' : '定型文'}`;
+  $('mode').textContent = mode === 'SEED' ? '' : mode;
+}
+
+let last = performance.now(), frame = 0, time = 0, fps = 60;
+function tick(now) {
+  requestAnimationFrame(tick);
+  const dt = Math.min((now - last) / 1000, 0.05); last = now; time += dt; frame++;
+  fps += ((dt > 0 ? 1 / dt : 60) - fps) * 0.05;
+  const moved = detectMotion(now);
+  runSeg(now);
+  if (stage === 'live' && !ending) {
+    if (videoReady && motionPrimed) { if (moved) spawnFromMotion(0.033); }
+    else if (time - lastPointerTime > 4) ghostHand(dt);
+  }
+  if (!videoReady && time - lastPointerTime > 1) activity += (0 - activity) * 0.02;
+  if (bodyState.source === 'DEMO') demoVitals(time);
+  const k = 1 - Math.exp(-dt * 1.2);
+  view.heartRate += (bodyState.heartRate - view.heartRate) * k;
+  view.stress += (Math.min(bodyState.stress + stressBoost + weekDensity * 0.8, 1) - view.stress) * k;
+  const pulse = heartbeat(dt);
+  updateBody(dt);
+  updateSparks(dt);
+  updateWeek(dt);
+  if (frame % 3 === 0) updateLines();
+  updateScene(dt, pulse);
+  music(time);
+  if (frame % 10 === 0) updateHud();
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(tick);
+
+/* ============================================================
+   導入：心音 → 問い → 誕生
+   ============================================================ */
+let skipPrelude = false;
+const wait = (ms) => new Promise((r) => { const t0 = performance.now(); const f = () => (skipPrelude || performance.now() - t0 >= ms) ? r() : setTimeout(f, 50); f(); });
+function bigBang() {
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * Math.PI * 2, sp = 2.5 + Math.random() * 2;
+    spawnSpark(0, 0, g() * 0.2, 1, Math.cos(a) * sp, Math.sin(a) * sp);
+  }
+  starsBorn = 0;
+}
+let hasIntroed = false;
+async function runPrelude(items) {
+  skipPrelude = false;
+  setStage('prelude'); mode = 'SEED';
+  applyWeek(items);
+  if (!hasIntroed) {
+    await wait(2400);
+    showCenter('宇宙は、どこにあるのだろう。');
+    await wait(3400);
+    hideCenter(); await wait(700);
+  }
+  showCenter(weekSummary ? `——あなたの1週間。<br><span style="font-size:.72em;color:var(--dim)">${weekSummary}</span>` : '——ここに。', true);
+  await wait(2600);
+  hideCenter();
+  setStage('live'); mode = 'BODY';
+  bigBang();
+  showNarration(CAPTIONS.BODY);
+  hasIntroed = true;
+  setTimeout(narrate, 6000);
+  if (!narrateTimer) narrateTimer = setInterval(narrate, CONFIG.NARRATE_INTERVAL_MS);
+}
+let narrateTimer = null;
+
+/* ---------- 「今週、何してた？」入力フォーム ---------- */
+const weekForm = $('weekform'), weekInput = $('week-input');
+function showWeekForm() {
+  setStage('prelude');
+  weekForm.style.display = 'flex'; weekForm.style.opacity = 1;
+  $('week-q').textContent = hasIntroed ? '次は、あなたの番です。今週、何してた？' : '今週、何してた？';
+  weekInput.value = '';
+  setTimeout(() => weekInput.focus(), 50);
+}
+function hideWeekForm() {
+  weekForm.style.opacity = 0;
+  setTimeout(() => (weekForm.style.display = 'none'), 800);
+}
+function submitWeek() {
+  const raw = weekInput.value.trim();
+  if (!raw) { weekInput.focus(); return; }
+  hideWeekForm();
+  runPrelude(parseWeek(raw));
+}
+$('week-submit').onclick = submitWeek;
+weekInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitWeek(); } });
+
+/* ============================================================
+   操作
+   ============================================================ */
+function nextMode() {
+  if (stage !== 'live') return;
+  mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+  $('btn-mode').textContent = MODE_BUTTON[mode];
+  showNarration(CAPTIONS[mode]);
+}
+function toggleEnding() {
+  if (stage !== 'live') return;
+  ending = !ending;
+  if (ending) { narrationEl.style.opacity = 0; showCenter(CONFIG.ENDING_TEXT, true); document.body.classList.add('hide-hud'); }
+  else { hideCenter(); document.body.classList.remove('hide-hud'); }
+}
+function startNewWeek() {
+  if (stage !== 'live') return;
+  clearSparks(); ending = false; stressBoost = 0; hideCenter(); document.body.classList.remove('hide-hud');
+  mode = 'BODY'; $('btn-mode').textContent = MODE_BUTTON.BODY;
+  showWeekForm();   // 次の人（審査員）の1週間を聞く
+}
+$('btn-mode').onclick = nextMode;
+$('btn-talk').onclick = narrate;
+addEventListener('keydown', (e) => {
+  if (document.activeElement === weekInput) return;   // 入力中はショートカットを無効化（EnterはweekInput側で処理）
+  if (stage === 'prelude' && (e.code === 'Space' || e.key === 'Enter')) { skipPrelude = true; return; }
+  if (e.code === 'Space') { e.preventDefault(); nextMode(); }
+  const key = e.key.toLowerCase();
+  if (key === 'n') narrate();
+  if (key === 's') stressBoost = stressBoost ? 0 : 0.7;   // 演出用：緊張を上げてブラックホールを出す
+  if (key === 'e') toggleEnding();                        // 締めの一文
+  if (key === 'r') startNewWeek();                        // 次の人（審査員）へ
+  if (key === 'h') document.body.classList.toggle('hide-hud');
+});
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+$('start').onclick = async () => {
+  $('intro').style.opacity = 0; setTimeout(() => ($('intro').style.display = 'none'), 1000);
+  try { await initAudio(); } catch (e) { console.warn(e); }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
+    video.srcObject = stream; await video.play();
+    videoReady = true;
+    if (video.videoWidth) WORLD_W = WORLD_H * video.videoWidth / video.videoHeight;
+    initSegmenter();
+    setInterval(lifaceTick, CONFIG.LIFACE_INTERVAL_MS);
+  } catch (e) {
+    console.warn('camera unavailable — タッチ操作で続行', e);
+  }
+  showWeekForm();
+};
+
+
+/* ============================================================
+   外の宇宙 → 内の宇宙 のブリッジ
+   親フレーム（地球を守る宇宙の目）から届く実観測データを、
+   この宇宙の物理に流し込む。現実の観測が、あなたの宇宙に星を生む。
+   ============================================================ */
+let realLive = null, realStars = 0, realSeen = new Set();
+function applyReal(d) {
+  if (!d) return;
+  realLive = d;
+  const el = $('h-real');
+  if (el) {
+    const ty = d.typhoons?.[0];
+    el.innerHTML = '<b style="color:#7fd8ff">外の宇宙（実観測）</b><br>'
+      + (ty ? `🌀 台風${ty.number}号 ${ty.name}／${ty.pressure || '-'}hPa<br>` : '🌀 台風なし<br>')
+      + (d.top?.length ? d.top.slice(0, 2).map((h) => `${h.icon} ${h.name} ${Math.round(h.score)}`).join('<br>') + '<br>' : '')
+      + (d.iss ? `🛰 ISS 高度${Math.round(d.iss.alt)}km／${d.iss.visible ? '日照中' : '地球の影'}<br>` : '')
+      + (d.kp != null ? `☀ 地磁気Kp ${d.kp.toFixed(1)}` : '');
+  }
+  // 実イベントは、この宇宙に実際の星として生まれる（重複は1回だけ）
+  const events = [];
+  if (d.typhoons) d.typhoons.forEach((t) => events.push({ k: 'ty' + t.number, hue: 0.55, s: 1.0 }));
+  if (d.top) d.top.forEach((h) => { if (h.score >= 25) events.push({ k: 'hz' + h.label + Math.round(h.score / 10), hue: h.label === '猛暑' ? 0.08 : 0.0, s: 0.8 }); });
+  if (d.kp != null && d.kp >= 4) events.push({ k: 'kp' + Math.round(d.kp), hue: 0.3, s: 0.9 });
+  for (const e of events) {
+    if (realSeen.has(e.k)) continue;
+    realSeen.add(e.k); realStars++;
+    const a = Math.random() * Math.PI * 2, r = 6 + Math.random() * 3;
+    try { spawnSpark(Math.cos(a) * r, (Math.random() - 0.5) * 4, Math.sin(a) * r, e.s); } catch (err) { /* not ready yet */ }
+  }
+}
+window.addEventListener('message', (ev) => {
+  if (ev.data && ev.data.type === 'earth-eye:live') applyReal(ev.data.payload);
+});
+try { parent.postMessage({ type: 'inner:ready' }, '*'); } catch (e) {}
+
+window.__cosmos = { get starsBorn() { return starsBorn; }, get stage() { return stage; }, get mode() { return mode; },
+  get fps() { return Math.round(fps); }, get videoReady() { return videoReady; }, get activity() { return activity; },
+  get bh() { return bhStrength; }, get ending() { return ending; }, get weekDensity() { return weekDensity; },
+  get weekSummary() { return weekSummary; }, get weekCount() { return weekItems.length; },
+  get realStars() { return realStars; }, get realLive() { return realLive; }, applyReal,
+  submitWeek: (text) => { $('week-input').value = text; submitWeek(); } };
+</script>
+</body>
+</html>

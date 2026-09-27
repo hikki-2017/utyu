@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>地球を守る宇宙の目</title>
+<meta name="description" content="衛星データと気象予測から、山火事・洪水・猛暑の72時間先リスクを地図で可視化するプロトタイプ">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#070b16">
+<link rel="stylesheet" href="vendor/maplibre/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">🛰</span><div><h1>地球を守る宇宙の目</h1><p>AI × 衛星データで、72時間先の地球のリスクを見る</p></div></div>
+  <nav class="seg mode" id="mode"><button data-mode="earth" class="on">🌍 地球</button><button data-mode="solar">🪐 太陽系</button><button data-mode="cosmos">🌌 宇宙</button><button data-mode="sky">🔭 今夜の空</button><button data-mode="moon">🌙 月面</button><button data-mode="inner">🌠 僕の宇宙</button></nav>
+  <div class="status" id="status" role="status">読み込み中…</div>
+</header>
+<div id="intro">
+  <div class="introbox">
+    <p class="kicker">HACK SONIC 2026</p>
+    <h2>宇宙の目 <span>×</span> INNER COSMOS</h2>
+    <p class="lead">いまの地球から、138億光年の果てまで。<br>そして最後に、あなたの1週間へ。</p>
+    <button id="jStart">▶　宇宙の旅へ（90秒）</button>
+    <button id="jSkip" class="ghost">自分で操作する</button>
+    <p class="note">表示されるデータはすべて実際の観測値です（気象庁・NASA・NOAA）</p>
+  </div>
+</div>
+<div id="jCaption"></div>
+<div id="jHud"><div id="jBarWrap"><i id="jBar"></i></div><button id="jReplay" title="もう一度">↻</button><button id="jStop" title="旅をやめる">✕</button></div>
+<main>
+  <section class="mapwrap">
+    <div id="map" aria-label="リスクマップ"></div>
+    <div id="solar" hidden aria-label="太陽系"></div>
+    <div id="cosmos" hidden aria-label="宇宙の地図"></div>
+    <div id="moon" hidden aria-label="月面マップ"></div>
+    <iframe id="inner" hidden title="僕の宇宙" src="about:blank" allow="camera; microphone; autoplay"></iframe>
+    <div id="sky" hidden aria-label="今夜の空"><canvas id="skyCanvas"></canvas></div>
+    <div id="skyBar" class="timebar">
+      <button id="skyPlay" aria-label="再生">▶</button>
+      <input id="skyTime" type="range" min="0" max="216" value="0" aria-label="時刻（今から18時間）">
+      <output id="skyTimeLabel"></output>
+    </div>
+    <div id="cosmosBar" class="timebar"><output id="cosmosLevels" class="plist"></output><span class="hint" style="margin:0">ドラッグで回転・ホイールでズーム</span></div>
+    <div id="solarBar" class="timebar">
+      <output id="planetList" class="plist"></output>
+      <input id="solarDay" type="range" min="-1100" max="1100" value="0" aria-label="日付">
+      <output id="solarDate"></output>
+      <button id="solarNow" title="今日に戻す">今日</button>
+    </div>
+    <div class="controls">
+      <div class="seg" id="hazards" role="tablist"></div>
+      <div class="seg" id="layers">
+        <button data-layer="true" class="on">衛星画像</button>
+        <button data-layer="fire" class="on">熱異常(火点)</button>
+        <button data-layer="iss" class="on">🛰 ISS</button>
+      </div>
+    </div>
+    <div class="timebar">
+      <button id="play" aria-label="再生">▶</button>
+      <input id="hour" type="range" min="0" max="71" value="0" aria-label="予測時刻">
+      <output id="hourLabel"></output>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+  <aside>
+    <div id="innerPanel" class="card">
+      <h2>🌠 僕の宇宙 <small style="color:var(--mut);font-weight:400">INNER COSMOS</small></h2>
+      <p class="hint">外の宇宙（左の実観測）と、内の宇宙（あなたの1週間）を同じ画面でつなぎます。「今週なにしてた？」を一文入れると、予定の密度が<b>重力</b>に、空白が<b>ダークマター</b>に、惑星が<b>音</b>になります。</p>
+      <div class="stat live"><b>いま流し込んでいる実データ</b><div id="innerFeed">接続中…</div></div>
+      <div class="stat"><b>つながり方</b>台風・災害リスク・ISS・地磁気の実観測イベントが発生するたび、あなたの宇宙に星が1つ生まれます。<span id="innerStars">0</span> 個が現実から届きました。</div>
+      <p class="hint">カメラを許可すると、あなたの動き（＝観測）でも星が生まれ、観測のたびに宇宙がハッブルの法則にしたがって膨張します。カメラなしでも動きます。</p>
+    </div>
+    <div id="moonPanel" class="card"><div id="moonInfo"></div><div id="moonList" class="clist"></div></div>
+    <div id="skyPanel" class="card">
+      <h2>🔭 今夜の空 <small style="color:var(--mut);font-weight:400">観測コーディネーター</small></h2>
+      <div class="skyctl"><button id="skyGeo" class="primary" style="width:auto;padding:6px 12px;font-size:12px">📍 現在地</button><select id="skyLoc" aria-label="地点"></select></div>
+      <div id="skyInfo"><div id="skyResult"><p class="hint">読み込み中…</p></div></div>
+    </div>
+    <div id="cosmosPanel" class="card"><div id="cosmosInfo"></div><div id="cosmosList" class="clist"></div></div>
+    <div id="solarPanel" class="card"><div id="planetInfo"><p class="hint">惑星か太陽を選んでください。</p></div></div>
+    <div id="earthPanel">
+    <div class="card" id="issCard"><h2>🛰 国際宇宙ステーション（リアルタイム）</h2><div id="issInfo"><p class="hint">取得中…</p></div></div>
+    <div class="card" id="tyCard" hidden><h2>🌀 台風情報（気象庁）</h2><div id="tyInfo"></div></div>
+    <div class="card" id="rank"><h2>いま注意すべき地点</h2><ol id="rankList"></ol></div>
+    <div class="card" id="detail"><h2>地点の詳細</h2><p class="hint">地図上の地点、またはリストを選んでください。</p></div>
+    <div class="card scenario">
+      <h2>もし今、このシステムがあったら</h2>
+      <p class="hint">72時間で最も山火事リスクが高い地点を自動で選び、警報から避難までを再現します。</p>
+      <button id="scenarioBtn" class="primary">シナリオを再生</button>
+      <ol id="story" class="story"></ol>
+    </div>
+    </div>
+    <p class="foot">気象: Open-Meteo / 衛星: NASA GIBS (VIIRS・MODIS)。リスク指数は説明可能なローカルモデルによる<b>参考値</b>で、公的な警報ではありません。
+    <a href="api/risk?lat=35.99&lon=139.08" target="_blank" rel="noopener">API例</a></p>
+  </aside>
+</main>
+<script src="vendor/maplibre/maplibre-gl.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
