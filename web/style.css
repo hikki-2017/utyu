@@ -262,3 +262,8 @@ ul.ev li,ol.rank li,.rec li{font-size:13px} .rec li{border-bottom:1px solid var(
   backdrop-filter:var(--material);-webkit-backdrop-filter:var(--material);
   border-radius:var(--r-sm);padding:6px 11px;font-size:12px;color:var(--mut)}
 @media(max-width:860px){.cloudnote{display:none}}
+
+ol.steps{counter-reset:s;margin:6px 0 10px;padding:0;list-style:none}
+ol.steps li{counter-increment:s;position:relative;padding-left:22px;margin:5px 0;font-size:12px;line-height:1.55;color:var(--txt)}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:15px;height:15px;border-radius:50%;
+  background:var(--acc);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}

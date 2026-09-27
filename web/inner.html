@@ -80,7 +80,7 @@
 #real-badge .rlog{margin-top:8px;font-size:11px;color:rgba(235,235,245,.5)}
 #real-badge .rlog em{font-style:normal;color:rgba(127,216,255,.75)}
 @media(max-width:860px){#real-badge{bottom:84px;padding:8px 16px}#real-badge b{font-size:34px}}
-#const-badge{position:fixed;right:16px;bottom:16px;z-index:56;text-align:right;font-size:12px;
+#const-badge{position:fixed;right:16px;bottom:16px;z-index:56;text-align:right;font-size:12px;max-width:44vw;
   color:rgba(235,235,245,.62);line-height:1.5;pointer-events:none}
 #const-badge b{display:block;font-size:26px;font-weight:700;color:#ffd77a;letter-spacing:-.02em}
 #const-badge .list{margin-top:6px;font-size:11px;color:rgba(235,235,245,.45)}
@@ -94,6 +94,7 @@
   color:rgba(255,215,122,.9);pointer-events:none;opacity:0;transition:opacity .4s;text-align:center}
 #const-hint.show{opacity:1}
 body.drawing #btn-const{background:rgba(255,215,122,.22);border-color:rgba(255,215,122,.6);color:#ffd77a}
+#btn-bang{background:rgba(255,215,122,.16);border-color:rgba(255,215,122,.55);color:#ffd77a}
 @media(max-width:860px){#const-banner b{font-size:34px}#const-badge b{font-size:20px}}
 </style>
 </head>
@@ -141,6 +142,7 @@ body.drawing #btn-const{background:rgba(255,215,122,.22);border-color:rgba(255,2
 <div id="const-hint"></div>
 <div id="controls" class="ui">
   <button id="btn-const">星座を作る</button>
+  <button id="btn-bang" hidden>宇宙を完成させる</button>
   <button id="btn-mode">内側へ潜る</button>
   <button id="btn-talk">宇宙の声を聴く</button>
 </div>
@@ -549,6 +551,7 @@ function finishConstellation() {
   saveConstellations();
   conste.nodes = []; conste.last = null; conste.idle = 0;
   conste.flash = 1.4;                       // この間だけ他を暗くして、完成を見えるようにする
+  updateConsteBadge();
   showConsteBanner(rec);
   try { chord(); } catch (e) {}
   if (conste.done.length >= GOAL && !universeDone) completeUniverse();
@@ -587,9 +590,14 @@ function updateConsteBadge() {
   const b = $('const-badge');
   if (!b) return;
   const n = conste.done.length;
-  if (!n && !conste.on) { b.innerHTML = ''; return; }
-  const list = conste.done.slice(-3).reverse().map((r) => `${r.name}`).join('<br>');
-  b.innerHTML = `<b>${n} / ${GOAL}</b>星座<div class="list">${list}</div>`;
+  if (stage !== 'live') { b.innerHTML = ''; return; }
+  const list = conste.done.slice(-3).reverse().map((r) => r.name).join('<br>');
+  b.innerHTML = universeDone
+    ? `<b>完成</b>宇宙ができました<div class="list">${list}</div>`
+    : `<b>${n} / ${GOAL}</b>星座をつくると宇宙が完成`
+      + (n ? `<div class="list">${list}</div>` : '<div class="list">「星座を作る」を押して<br>手を動かし、止める</div>');
+  const bb = $('btn-bang');
+  if (bb) bb.hidden = !(n >= 1 && !universeDone && !bang.on);
 }
 function showConsteBanner(rec) {
   const el = $('const-banner');
@@ -1309,6 +1317,7 @@ function updateHud() {
   $('h-src').textContent = `入力: ${eye} ／ 身体: ${bodySrc} ／ 声: ${aiOnline ? 'ローカルAI' : '定型文'}`;
   $('mode').textContent = mode === 'SEED' ? '' : mode;
   updateEmotion();
+  if (frame % 60 === 0) updateConsteBadge();
 }
 
 let last = performance.now(), frame = 0, time = 0, fps = 60;
@@ -1523,6 +1532,7 @@ restoreReal();
 renderRealBadge();
 restoreConstellations();
 $('btn-const')?.addEventListener('click', () => toggleConstellation());
+$('btn-bang')?.addEventListener('click', () => { if (conste.on) toggleConstellation(false); universeDone = true; bigBangFinale(); updateConsteBadge(); });
 try { parent.postMessage({ type: 'inner:ready' }, '*'); } catch (e) {}
 
 window.__cosmos = { get starsBorn() { return starsBorn; }, get stage() { return stage; }, get mode() { return mode; },

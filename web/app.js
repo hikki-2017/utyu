@@ -477,6 +477,15 @@ window.addEventListener("message", (e) => {
   if (e.data?.type === "inner:ready") pushInner();
 });
 
+$("#innerBang")?.addEventListener("click", () => {
+  const w = $("#inner").contentWindow;
+  try {
+    if (!w?.__cosmos) return alert("「僕の宇宙」を開いて、宇宙が生まれてから押してください。");
+    if (!w.__cosmos.constellations.length) return alert("先に星座を1つ作ってください。画面下の「星座を作る」を押して、手を動かし、止めると完成します。");
+    w.__cosmos.finale();
+  } catch (err) { console.warn(err); }
+});
+
 // ---- 宇宙の旅（全モードを1本につなぐ） ----
 import("./journey.js").then((m) => m.initJourney({
   setMode,
