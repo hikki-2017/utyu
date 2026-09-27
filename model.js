@@ -51,12 +51,15 @@ function heat(h, t) {
   const e = (h.rh[t] / 100) * 6.105 * Math.exp((17.27 * T) / (237.7 + T));
   const wbgt = 0.567 * T + 0.393 * e + 3.94;
   const score = clamp((wbgt - 21) / 12) * 100;
+  // 寄与は WBGT 式の各項から実際に計算する（合計1）
+  const termT = 0.567 * T, termE = 0.393 * e, base = 3.94;
+  const tot = Math.abs(termT) + Math.abs(termE) + base;
   return {
     score,
     factors: [
-      { name: "暑さ指数(WBGT近似)", value: `${wbgt.toFixed(1)}`, share: 1 },
-      { name: "気温", value: `${T.toFixed(1)}°C`, share: 0.6 },
-      { name: "湿度", value: `${h.rh[t].toFixed(0)}%`, share: 0.4 },
+      { name: "気温の寄与", value: `${T.toFixed(1)}°C`, share: termT / tot },
+      { name: "湿り（水蒸気圧）の寄与", value: `${e.toFixed(1)} hPa`, share: termE / tot },
+      { name: "暑さ指数(WBGT近似)", value: `${wbgt.toFixed(1)}`, share: base / tot },
     ],
   };
 }
@@ -95,12 +98,13 @@ export function distKm(lat1, lon1, lat2, lon2) {
   return 12742 * Math.asin(Math.sqrt(a));
 }
 
-// Exposure to a typhoon given distance to its centre and its storm (25m/s) / gale (15m/s) radii.
+// 台風の影響度。気象庁が出している暴風域(25m/s)・強風域(15m/s)の半径の中だけで評価する。
+// 半径が公表されていない場合に独自の半径を仮定すると、気象庁の警戒円の外を塗ることになるため、しない。
 export function typhoonScore(d, storm, gale) {
-  gale = Math.max(gale, storm * 1.5, 100);
+  if (!storm && !gale) return 0;
+  const outer = Math.max(gale, storm);
   if (storm && d <= storm) return 80 + 20 * (1 - d / storm);
-  if (d <= gale) return 50 + 30 * (1 - Math.max(0, d - storm) / (gale - storm));
-  if (d <= gale * 2) return 50 * (1 - (d - gale) / gale);
+  if (d <= outer) return 50 + 30 * (1 - Math.max(0, d - storm) / Math.max(1, outer - storm));
   return 0;
 }
 

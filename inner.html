@@ -46,6 +46,14 @@
   #week-input::placeholder { color:#5c6489; }
   #weekform button { margin-top:20px; }
   @media (max-width:560px) { #hud { font-size:11px; } #controls button { padding:9px 14px; font-size:13px; } }
+#real-badge{position:fixed;left:50%;bottom:104px;transform:translateX(-50%);z-index:60;text-align:center;
+  padding:10px 22px;border-radius:18px;background:rgba(10,14,26,.66);border:1px solid rgba(127,216,255,.34);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);pointer-events:none;line-height:1.25}
+#real-badge b{display:block;font-size:46px;font-weight:700;color:#7fd8ff;letter-spacing:-.02em}
+#real-badge span{display:block;font-size:13px;color:rgba(235,235,245,.7);margin-top:2px}
+#real-badge .rlog{margin-top:8px;font-size:11px;color:rgba(235,235,245,.5)}
+#real-badge .rlog em{font-style:normal;color:rgba(127,216,255,.75)}
+@media(max-width:860px){#real-badge{bottom:84px;padding:8px 16px}#real-badge b{font-size:34px}}
 </style>
 </head>
 <body class="stage-intro">
@@ -77,6 +85,7 @@
   <div id="h-src">—</div>
   <div id="h-real" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(127,216,255,.25);font-size:11px;line-height:1.5">外の宇宙と接続中…</div>
 </div>
+<div id="real-badge"></div>
 <div id="narration"></div>
 <div id="controls" class="ui">
   <button id="btn-mode">内側へ潜る</button>
@@ -296,17 +305,21 @@ function d2s(a, b) {
 const PERM = 64;                 // 実観測イベント由来の星のための予約枠
 const RING = S - PERM;           // 通常の星が回るリングバッファ
 let permHead = 0;
-function spawnSpark(x, y, z, strength, vx = 0, vy = 0, permanent = false) {
+function spawnSpark(x, y, z, strength, vx = 0, vy = 0, permanent = false, hue = null) {
   const i = permanent ? RING + (permHead++ % PERM) : sHead;
   if (!permanent) sHead = (sHead + 1) % RING;
   // 実観測の星は消えない。現実に起きた記録なので、寿命を持たせない。
   sAlive[i] = 1; sGen[i] = genCounter++; sAge[i] = 0; sLife[i] = permanent ? Infinity : 10 + Math.random() * 6;
   sPos[i*3] = x; sPos[i*3+1] = y; sPos[i*3+2] = z;
   sVel[i*3] = vx + g() * 0.35; sVel[i*3+1] = vy + g() * 0.35; sVel[i*3+2] = g() * 0.2;
-  const h = view.stress > 0.6 ? 0.9 + Math.random() * 0.08 : 0.5 + clamp(y / 10 + 0.5, 0, 1) * 0.2 + Math.random() * 0.04;
-  tmpColor.setHSL(h % 1, 0.85, 0.6 + Math.random() * 0.2);
+  // 実観測の星は色相を固定し、通常の星と混ざらないようにする
+  const h = hue != null ? hue
+    : view.stress > 0.6 ? 0.9 + Math.random() * 0.08
+    : 0.5 + clamp(y / 10 + 0.5, 0, 1) * 0.2 + Math.random() * 0.04;
+  tmpColor.setHSL(h % 1, hue != null ? 1.0 : 0.85, hue != null ? 0.72 : 0.6 + Math.random() * 0.2);
   sBase[i*3] = tmpColor.r; sBase[i*3+1] = tmpColor.g; sBase[i*3+2] = tmpColor.b;
-  sBaseSize[i] = 3 + strength * 5 + Math.random() * 2;
+  // 実観測の星は明確に大きい。指で指せることが、この作品の核の前提。
+  sBaseSize[i] = permanent ? 16 + strength * 6 : 3 + strength * 5 + Math.random() * 2;
   // 星座：直前に生まれた星と、近くの星につなぐ
   if (lastSpark >= 0 && sAlive[lastSpark] && time - lastSparkTime < 0.4 && d2s(i, lastSpark) < 2.5) addLink(i, lastSpark);
   let best = -1, bd = 1.4;
@@ -346,6 +359,8 @@ function updateSparks(dt) {
     const f = fade * glow;
     sCol[i3] = sBase[i3] * f; sCol[i3+1] = sBase[i3+1] * f; sCol[i3+2] = sBase[i3+2] * f;
     sSize[i] = sBaseSize[i] * (1 + 2.5 * Math.exp(-age * 5)) * (0.6 + fade * 0.4);
+    // 実観測の星は、ゆっくり脈打つ。他の何百個と見分けるための唯一の手がかり。
+    if (i >= RING) sSize[i] = sBaseSize[i] * (1.0 + 0.45 * Math.sin(age * 1.7 + i));
   }
   sparkGeo.attributes.position.needsUpdate = true;
   sparkGeo.attributes.aColor.needsUpdate = true;
@@ -1012,7 +1027,7 @@ function restoreReal() {
   for (const r of saved.slice(-PERM)) {
     if (!r || !r.k) continue;
     realSeen.add(r.k); realLog.push(r); realStars++;
-    try { spawnSpark(r.x, r.y, r.z, r.s || 0.9, 0, 0, true); } catch (e) { /* 描画前なら諦める */ }
+    try { spawnSpark(r.x, r.y, r.z, r.s || 0.9, 0, 0, true, r.hue != null ? r.hue : 0.55); } catch (e) { /* 描画前なら諦める */ }
   }
 }
 function applyReal(d) {
@@ -1029,31 +1044,46 @@ function applyReal(d) {
   }
   // 実イベントは、この宇宙に実際の星として生まれる（重複は1回だけ）
   const events = [];
-  if (d.typhoons) d.typhoons.forEach((t) => events.push({ k: 'ty' + t.number, hue: 0.55, s: 1.0 }));
-  if (d.top) d.top.forEach((h) => { if (h.score >= 25) events.push({ k: 'hz' + h.label + Math.round(h.score / 10), hue: h.label === '猛暑' ? 0.08 : 0.0, s: 0.8 }); });
-  if (d.kp != null && d.kp >= 4) events.push({ k: 'kp' + Math.round(d.kp), hue: 0.3, s: 0.9 });
+  if (d.typhoons) d.typhoons.forEach((t) => events.push({ k: 'ty' + t.number, hue: 0.55, s: 1.0, label: `台風${t.number}号 ${t.name || ''}`.trim() }));
+  if (d.top) d.top.forEach((h) => { if (h.score >= 25) events.push({ k: 'hz' + h.label + Math.round(h.score / 10), hue: h.label === '猛暑' ? 0.08 : 0.0, s: 0.8, label: `${h.label} ${h.name} ${Math.round(h.score)}` }); });
+  if (d.kp != null && d.kp >= 4) events.push({ k: 'kp' + Math.round(d.kp), hue: 0.3, s: 0.9, label: `地磁気 Kp${d.kp.toFixed(1)}` });
   for (const e of events) {
     if (realSeen.has(e.k)) continue;
     realSeen.add(e.k); realStars++;
     const a = Math.random() * Math.PI * 2, r = 6 + Math.random() * 3;
-    const rec = { k: e.k, x: Math.cos(a) * r, y: (Math.random() - 0.5) * 4, z: Math.sin(a) * r, s: e.s };
+    const now = new Date();
+    const rec = { k: e.k, x: Math.cos(a) * r, y: (Math.random() - 0.5) * 4, z: Math.sin(a) * r,
+      s: e.s, hue: e.hue, label: e.label || e.k,
+      ts: `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` };
     realLog.push(rec); saveReal();
-    try { spawnSpark(rec.x, rec.y, rec.z, rec.s, 0, 0, true); } catch (err) { /* not ready yet */ }
+    try { spawnSpark(rec.x, rec.y, rec.z, rec.s, 0, 0, true, rec.hue); } catch (err) { /* not ready yet */ }
   }
-  const el2 = $('h-real');
-  if (el2 && realStars) el2.insertAdjacentHTML('beforeend', `<br><span style="color:#7fd8ff">★ 現実から届いた星 ${realStars}</span>`);
+  renderRealBadge();
+}
+
+// 現実から届いた星を、後席からも読める大きさで出す
+function renderRealBadge() {
+  const b = $('real-badge');
+  if (!b) return;
+  if (!realStars) { b.style.display = 'none'; return; }
+  b.style.display = '';
+  const recent = realLog.slice(-3).reverse()
+    .map((r) => `<em>${r.ts || ''}</em> ${r.label || r.k}`).join('<br>');
+  b.innerHTML = `<b>${realStars}</b><span>現実から届いた星</span><div class="rlog">${recent}</div>`;
 }
 window.addEventListener('message', (ev) => {
   if (ev.data && ev.data.type === 'earth-eye:live') applyReal(ev.data.payload);
 });
 restoreReal();
+renderRealBadge();
 try { parent.postMessage({ type: 'inner:ready' }, '*'); } catch (e) {}
 
 window.__cosmos = { get starsBorn() { return starsBorn; }, get stage() { return stage; }, get mode() { return mode; },
   get fps() { return Math.round(fps); }, get videoReady() { return videoReady; }, get activity() { return activity; },
   get bh() { return bhStrength; }, get ending() { return ending; }, get weekDensity() { return weekDensity; },
   get weekSummary() { return weekSummary; }, get weekCount() { return weekItems.length; },
-  get realStars() { return realStars; }, get realLive() { return realLive; }, get realLog() { return realLog; }, applyReal,
+  get realStars() { return realStars; }, get realLive() { return realLive; }, get realLog() { return realLog; }, applyReal, renderRealBadge,
+  forgetReal: () => { try { localStorage.removeItem(REAL_KEY); } catch (e) {} realSeen.clear(); realLog.length = 0; realStars = 0; renderRealBadge(); },
   submitWeek: (text) => { $('week-input').value = text; submitWeek(); } };
 </script>
 </body>
