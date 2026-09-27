@@ -80,6 +80,21 @@
 #real-badge .rlog{margin-top:8px;font-size:11px;color:rgba(235,235,245,.5)}
 #real-badge .rlog em{font-style:normal;color:rgba(127,216,255,.75)}
 @media(max-width:860px){#real-badge{bottom:84px;padding:8px 16px}#real-badge b{font-size:34px}}
+#const-badge{position:fixed;right:16px;bottom:16px;z-index:56;text-align:right;font-size:12px;
+  color:rgba(235,235,245,.62);line-height:1.5;pointer-events:none}
+#const-badge b{display:block;font-size:26px;font-weight:700;color:#ffd77a;letter-spacing:-.02em}
+#const-badge .list{margin-top:6px;font-size:11px;color:rgba(235,235,245,.45)}
+#const-banner{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%) scale(.94);z-index:70;
+  text-align:center;opacity:0;transition:opacity .45s,transform .45s;pointer-events:none}
+#const-banner.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+#const-banner b{display:block;font-size:54px;font-weight:700;color:#ffd77a;letter-spacing:-.03em;
+  text-shadow:0 0 50px rgba(255,215,122,.5)}
+#const-banner span{display:block;margin-top:10px;font-size:15px;color:rgba(235,235,245,.72)}
+#const-hint{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:56;font-size:13px;
+  color:rgba(255,215,122,.9);pointer-events:none;opacity:0;transition:opacity .4s;text-align:center}
+#const-hint.show{opacity:1}
+body.drawing #btn-const{background:rgba(255,215,122,.22);border-color:rgba(255,215,122,.6);color:#ffd77a}
+@media(max-width:860px){#const-banner b{font-size:34px}#const-badge b{font-size:20px}}
 </style>
 </head>
 <body class="stage-intro">
@@ -121,7 +136,11 @@
 </div>
 <div id="real-badge"></div>
 <div id="narration"></div>
+<div id="const-badge"></div>
+<div id="const-banner"></div>
+<div id="const-hint"></div>
 <div id="controls" class="ui">
+  <button id="btn-const">星座を作る</button>
   <button id="btn-mode">内側へ潜る</button>
   <button id="btn-talk">宇宙の声を聴く</button>
 </div>
@@ -363,7 +382,7 @@ function spawnSpark(x, y, z, strength, vx = 0, vy = 0, permanent = false, hue = 
     const d = d2s(i, j);
     if (d < bd) { bd = d; best = j; }
   }
-  if (best >= 0 && Math.random() < 0.55) addLink(i, best);
+  if (best >= 0 && !conste.on && Math.random() < 0.55) addLink(i, best);
   lastSpark = i; lastSparkTime = time; starsBorn++;
   sparkNote(x, y, strength);
 }
@@ -414,6 +433,341 @@ function updateSparks(dt) {
   linkGeo.setDrawRange(0, n * 2);
   linkGeo.attributes.position.needsUpdate = true;
   linkGeo.attributes.color.needsUpdate = true;
+}
+
+
+/* ============================================================
+   星座を作る（体の動きで描き、止めると完成する）
+   既存の spark / link とは別のバッファ。世代照合で消えることがない。
+   ============================================================ */
+const CN = 140;                       // 星座の節点の上限
+const CE = 220;                       // 辺の上限
+const DOTS = 11;                      // 1本の辺を何個の光の粒で描くか（1pxの線は後席から見えないため）
+const cPos = new Float32Array(CN * 3), cCol = new Float32Array(CN * 3), cSize = new Float32Array(CN);
+let cCount = 0;
+const cMat = pointMaterial(0);
+const cPoints = pointsFrom(cPos, cCol, cSize, cMat);
+const cGeo = cPoints.geometry;
+cPoints.frustumCulled = false;
+scene.add(cPoints);
+
+const ePos = new Float32Array(CE * DOTS * 3), eCol = new Float32Array(CE * DOTS * 3), eSize = new Float32Array(CE * DOTS);
+let eCount = 0;                        // 使用中の辺の数
+const eMat = pointMaterial(0);
+const ePoints = pointsFrom(ePos, eCol, eSize, eMat);
+const eGeo = ePoints.geometry;
+ePoints.frustumCulled = false;
+scene.add(ePoints);
+
+const NODE_HUE = 0.13;                 // 金色。動きから生まれる星（青〜紫）と混ざらない
+const tmpC2 = new THREE.Color();
+
+const conste = {
+  on: false,            // 作図モード中か
+  nodes: [],            // いま描いている星座の節点 index
+  last: null,           // 直前の節点座標
+  idle: 0,              // 節点を置いていない時間
+  done: [],             // 完成した星座 [{name, ts, nodes:[[x,y,z]], edges:[[i,j]]}]
+  flash: 0,             // 完成演出の残り時間
+  cursor: new THREE.Vector3(),
+  cursorOk: false,
+};
+const CONST_KEY = 'inner-cosmos:constellations';
+const STEP = 1.15;      // これだけ離れたら次の節点を置く（静止判定を使わないための距離ゲート）
+const CLOSE_IDLE = 1.5; // 手が止まってからこの秒数で完成
+const NEED = 3;         // 最低3点で星座
+const GOAL = 3;         // いくつ作れば宇宙が完成するか
+
+function addNode(x, y, z) {
+  if (cCount >= CN) return -1;
+  const i = cCount++;
+  cPos[i*3] = x; cPos[i*3+1] = y; cPos[i*3+2] = z;
+  tmpC2.setHSL(NODE_HUE, 0.95, 0.72);
+  cCol[i*3] = tmpC2.r; cCol[i*3+1] = tmpC2.g; cCol[i*3+2] = tmpC2.b;
+  cSize[i] = 22;
+  cGeo.attributes.position.needsUpdate = true;
+  cGeo.attributes.aColor.needsUpdate = true;
+  cGeo.attributes.aSize.needsUpdate = true;
+  cGeo.setDrawRange(0, cCount);
+  return i;
+}
+
+// 辺を「光の粒の数珠」として焼く。線ではないので太さが出て、後席からでも読める。
+function bakeEdge(ax, ay, az, bx, by, bz) {
+  if (eCount >= CE) return;
+  const e = eCount++;
+  for (let k = 0; k < DOTS; k++) {
+    const t = (k + 0.5) / DOTS, o = (e * DOTS + k) * 3;
+    ePos[o] = ax + (bx - ax) * t; ePos[o+1] = ay + (by - ay) * t; ePos[o+2] = az + (bz - az) * t;
+    tmpC2.setHSL(NODE_HUE, 0.9, 0.62);
+    eCol[o] = tmpC2.r; eCol[o+1] = tmpC2.g; eCol[o+2] = tmpC2.b;
+    eSize[e * DOTS + k] = 8;
+  }
+  eGeo.attributes.position.needsUpdate = true;
+  eGeo.attributes.aColor.needsUpdate = true;
+  eGeo.attributes.aSize.needsUpdate = true;
+  eGeo.setDrawRange(0, eCount * DOTS);
+}
+
+// 動き／指の位置から節点を置く。止まっているかではなく、前の点から離れたかで判定する。
+function feedConstellation(x, y, z) {
+  if (!conste.on || stage !== 'live' || ending) return;
+  conste.cursor.set(x, y, z); conste.cursorOk = true;
+  const L2 = conste.last;
+  if (L2) {
+    const dx = x - L2[0], dy = y - L2[1], dz = z - L2[2];
+    if (dx*dx + dy*dy + dz*dz < STEP * STEP) return;
+  }
+  const i = addNode(x, y, z);
+  if (i < 0) return;
+  if (L2) bakeEdge(L2[0], L2[1], L2[2], x, y, z);
+  conste.nodes.push(i);
+  conste.last = [x, y, z];
+  conste.idle = 0;
+  try { sparkNote(x, y, 0.9); } catch (e) {}
+  showConsteHint();
+}
+
+const CONST_WORDS_A = ['ひかりの', 'しずかな', 'とおい', 'めぐる', 'はじまりの', 'ちいさな', 'ゆれる', 'のこされた'];
+const CONST_WORDS_B = ['てのひら座', 'まわり道座', 'ねむり座', 'よあけ座', 'あしあと座', 'こだま座', 'かけら座', 'いきどまり座'];
+function makeName(n) {
+  const a = CONST_WORDS_A[(cCount * 7 + n) % CONST_WORDS_A.length];
+  const b = CONST_WORDS_B[(conste.done.length * 3 + n) % CONST_WORDS_B.length];
+  return a + b;
+}
+
+function finishConstellation() {
+  const n = conste.nodes.length;
+  if (n < NEED) { conste.nodes = []; conste.last = null; return; }
+  const now = new Date();
+  const rec = {
+    name: makeName(n),
+    ts: `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    nodes: conste.nodes.map((i) => [cPos[i*3], cPos[i*3+1], cPos[i*3+2]]),
+  };
+  conste.done.push(rec);
+  saveConstellations();
+  conste.nodes = []; conste.last = null; conste.idle = 0;
+  conste.flash = 1.4;                       // この間だけ他を暗くして、完成を見えるようにする
+  showConsteBanner(rec);
+  try { chord(); } catch (e) {}
+  if (conste.done.length >= GOAL && !universeDone) completeUniverse();
+}
+
+function saveConstellations() {
+  try { localStorage.setItem(CONST_KEY, JSON.stringify(conste.done.slice(-12))); } catch (e) {}
+}
+function restoreConstellations() {
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(CONST_KEY) || '[]'); } catch (e) { return; }
+  if (!Array.isArray(saved)) return;
+  for (const r of saved.slice(-12)) {
+    if (!r || !Array.isArray(r.nodes) || r.nodes.length < 2) continue;
+    const idx = r.nodes.map((q) => addNode(q[0], q[1], q[2]));
+    for (let k = 1; k < r.nodes.length; k++) {
+      const a = r.nodes[k-1], b = r.nodes[k];
+      bakeEdge(a[0], a[1], a[2], b[0], b[1], b[2]);
+    }
+    conste.done.push(r);
+  }
+  updateConsteBadge();
+}
+
+function toggleConstellation(on) {
+  conste.on = on === undefined ? !conste.on : on;
+  if (!conste.on) { finishConstellation(); }
+  conste.idle = 0;
+  document.body.classList.toggle('drawing', conste.on);
+  const b = $('btn-const');
+  if (b) b.textContent = conste.on ? '星座を作っている…' : '星座を作る';
+  showConsteHint();
+}
+
+function updateConsteBadge() {
+  const b = $('const-badge');
+  if (!b) return;
+  const n = conste.done.length;
+  if (!n && !conste.on) { b.innerHTML = ''; return; }
+  const list = conste.done.slice(-3).reverse().map((r) => `${r.name}`).join('<br>');
+  b.innerHTML = `<b>${n} / ${GOAL}</b>星座<div class="list">${list}</div>`;
+}
+function showConsteBanner(rec) {
+  const el = $('const-banner');
+  if (!el) return;
+  el.innerHTML = `<b>${rec.name}</b><span>星 ${rec.nodes.length} 個でできた、あなたの星座</span>`;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2600);
+  updateConsteBadge();
+}
+function showConsteHint() {
+  const el = $('const-hint');
+  if (!el) return;
+  if (!conste.on) { el.classList.remove('show'); return; }
+  const n = conste.nodes.length;
+  el.textContent = n === 0 ? '手を動かすと、星が置かれます'
+    : n < NEED ? `あと ${NEED - n} 個 置くと星座になります`
+    : '手を止めると、星座が完成します';
+  el.classList.add('show');
+}
+
+function updateConstellation(dt) {
+  if (conste.flash > 0) conste.flash = Math.max(0, conste.flash - dt);
+  if (!conste.on) return;
+  if (conste.nodes.length) {
+    conste.idle += dt;
+    if (conste.idle > CLOSE_IDLE) finishConstellation();
+    else if (frame % 20 === 0) showConsteHint();
+  }
+}
+
+
+/* ============================================================
+   宇宙の完成 → ビッグバン
+   星座をGOAL個つくると宇宙が完成し、いったん一点に収縮して爆発する。
+   爆発後、作った星座ひとつひとつが、新しい銀河の種になって配置される。
+   既存のバッファだけを使い、新しい確保はしない（低スペック端末対策）。
+   ============================================================ */
+let universeDone = false;
+const bang = { on: false, t: 0, seeds: [], saved: null };
+const BANG = { collapse: 3.0, hold: 1.0, burst: 0.5, spread: 5.5, settle: 3.0 };
+const BANG_TOTAL = BANG.collapse + BANG.hold + BANG.burst + BANG.spread + BANG.settle;
+
+function completeUniverse() {
+  if (universeDone || bang.on) return;
+  universeDone = true;
+  bigBangFinale();
+}
+
+function bigBangFinale() {
+  if (bang.on) return;
+  bang.on = true; bang.t = 0;
+  // 作った星座の重心を、新しい銀河の種にする
+  bang.seeds = conste.done.map((r, i) => {
+    const n = r.nodes.length || 1;
+    let x = 0, y = 0;
+    for (const q of r.nodes) { x += q[0]; y += q[1]; }
+    const a = (i / Math.max(1, conste.done.length)) * Math.PI * 2;
+    return { name: r.name, cx: x / n, cy: y / n, ang: a, r: 9 + i * 2.2 };
+  });
+  // 節点の元の位置を覚えておく（収縮して戻すため）
+  bang.saved = new Float32Array(cPos.subarray(0, cCount * 3));
+  showBangText('宇宙が、完成した。', '');
+  try {
+    if (audio.drone) audio.drone.volume.rampTo(-8, BANG.collapse);
+    if (audio.bell) audio.bell.triggerAttackRelease('C2', '1n', Tone.now(), 0.5);
+  } catch (e) {}
+}
+
+function showBangText(main, sub) {
+  const el = $('const-banner');
+  if (!el) return;
+  el.innerHTML = `<b>${main}</b>${sub ? `<span>${sub}</span>` : ''}`;
+  el.classList.add('show');
+}
+function hideBangText() { $('const-banner')?.classList.remove('show'); }
+
+function updateBang(dt) {
+  if (!bang.on) return;
+  const prev = bang.t;
+  bang.t += dt;
+  const t = bang.t;
+  const P = BANG;
+  const e1 = P.collapse, e2 = e1 + P.hold, e3 = e2 + P.burst, e4 = e3 + P.spread;
+
+  if (t < e1) {
+    // 収縮：すべてが一点へ吸い込まれていく
+    const u = t / e1, pull = u * u;
+    for (let i = 0; i < cCount; i++) {
+      const o = i * 3;
+      cPos[o] = bang.saved[o] * (1 - pull); cPos[o+1] = bang.saved[o+1] * (1 - pull); cPos[o+2] = bang.saved[o+2] * (1 - pull);
+      cSize[i] = 22 * (1 - pull * 0.75);
+    }
+    collapseEdges(pull);
+    if (prev < 1.2 && t >= 1.2) showBangText('宇宙が、完成した。', 'すべてが、一点に戻っていく');
+  } else if (t < e2) {
+    // 特異点：無音の一拍
+    for (let i = 0; i < cCount; i++) { const o = i * 3; cPos[o] = cPos[o+1] = cPos[o+2] = 0; cSize[i] = 6; }
+    collapseEdges(1);
+    if (prev < e1 + 0.05) { hideBangText(); try { audio.drone?.volume.rampTo(-60, 0.3); } catch (e) {} }
+  } else if (t < e3) {
+    // 爆発
+    if (prev < e2 + 0.05) {
+      showBangText('ビッグバン', '');
+      try { kickNow(); audio.drone?.volume.rampTo(-24, 0.4); } catch (e) {}
+    }
+    const u = (t - e2) / P.burst;
+    for (let i = 0; i < cCount; i++) cSize[i] = 6 + u * 46;
+  } else if (t < e4) {
+    // 展開：星座ひとつひとつが、新しい銀河の種として配置されていく
+    const u = (t - e3) / P.spread, ease = 1 - Math.pow(1 - u, 3);
+    let idx = 0;
+    for (let k = 0; k < conste.done.length; k++) {
+      const seed = bang.seeds[k], rec = conste.done[k];
+      if (!seed || !rec) continue;
+      const bx = Math.cos(seed.ang) * seed.r, by = Math.sin(seed.ang) * seed.r * 0.55;
+      for (let q = 0; q < rec.nodes.length && idx < cCount; q++, idx++) {
+        const o = idx * 3, src = rec.nodes[q];
+        const tx = bx + (src[0] - seed.cx) * 0.55, ty = by + (src[1] - seed.cy) * 0.55;
+        cPos[o] = tx * ease; cPos[o+1] = ty * ease; cPos[o+2] = (src[2] || 0) * ease;
+        cSize[idx] = 52 - ease * 30;
+      }
+      if (prev < e3 + 0.4 + k * 0.7 && t >= e3 + 0.4 + k * 0.7) {
+        showBangText(rec.name, 'が、銀河になった');
+        try { audio.bell?.triggerAttackRelease(['C4','E4','G4','B4','D5'][k % 5], '2n', undefined, 0.4); } catch (e) {}
+      }
+    }
+    rebuildEdgesFromDone(ease);
+  } else if (t < e4 + P.settle) {
+    if (prev < e4 + 0.05) showBangText('あなたの宇宙が、はじまった。', '星座は、銀河になって残ります');
+  } else {
+    // 終了状態をはっきり決める：新しい配置のまま留まり、通常運転に戻る
+    bang.on = false;
+    hideBangText();
+    try { audio.drone?.volume.rampTo(-38, 1.2); } catch (e) {}
+    updateConsteBadge();
+  }
+  cGeo.attributes.position.needsUpdate = true;
+  cGeo.attributes.aSize.needsUpdate = true;
+}
+
+function collapseEdges(pull) {
+  for (let k = 0; k < eCount * DOTS; k++) {
+    const o = k * 3;
+    ePos[o] *= (1 - pull * 0.12); ePos[o+1] *= (1 - pull * 0.12); ePos[o+2] *= (1 - pull * 0.12);
+    eSize[k] = 8 * (1 - pull);
+  }
+  eGeo.attributes.position.needsUpdate = true;
+  eGeo.attributes.aSize.needsUpdate = true;
+}
+
+function rebuildEdgesFromDone(ease) {
+  let e = 0;
+  let idx = 0;
+  for (let k = 0; k < conste.done.length; k++) {
+    const rec = conste.done[k];
+    const start = idx;
+    idx += rec.nodes.length;
+    for (let q = start + 1; q < idx && q < cCount && e < CE; q++, e++) {
+      const a = (q - 1) * 3, b = q * 3;
+      for (let d = 0; d < DOTS; d++) {
+        const tt = (d + 0.5) / DOTS, o = (e * DOTS + d) * 3;
+        ePos[o] = cPos[a] + (cPos[b] - cPos[a]) * tt;
+        ePos[o+1] = cPos[a+1] + (cPos[b+1] - cPos[a+1]) * tt;
+        ePos[o+2] = cPos[a+2] + (cPos[b+2] - cPos[a+2]) * tt;
+        eSize[e * DOTS + d] = 8 * ease;
+      }
+    }
+  }
+  eCount = Math.max(eCount, e);
+  eGeo.setDrawRange(0, eCount * DOTS);
+  eGeo.attributes.position.needsUpdate = true;
+  eGeo.attributes.aSize.needsUpdate = true;
+}
+
+function kickNow() {
+  const t = Tone.now();
+  audio.kick?.triggerAttackRelease('A0', '8n', t, 1);
+  audio.kick?.triggerAttackRelease('E1', '8n', t + 0.12, 0.7);
 }
 
 /* ---------- 宇宙の大規模構造（コズミックウェブ） ---------- */
@@ -592,8 +946,14 @@ let spawnBudget = 0;
 const cand = new Int32Array(GX * GY);
 function spawnFromMotion(dt) {
   spawnBudget = Math.min(spawnBudget + dt * 35, 6);
-  let c = 0;
-  for (let k = 0; k < GX * GY; k++) if (motion[k] > 0.09) cand[c++] = k;
+  let c = 0, wx = 0, wy = 0, wsum = 0;
+  for (let k = 0; k < GX * GY; k++) if (motion[k] > 0.09) {
+    cand[c++] = k;
+    const w = motion[k]; wx += cellX(k % GX) * w; wy += cellY(Math.floor(k / GX)) * w; wsum += w;
+  }
+  // 作図中は、動きの重心を「手の先」とみなして星座の節点を置く。
+  // 静止を待たず距離だけで判定するので、自動露出のちらつきでは節点が増えない。
+  if (conste.on && wsum > 0.6 && c >= 3) feedConstellation(wx / wsum, wy / wsum, 0);
   if (c < 3) return;
   const n = Math.min(Math.floor(spawnBudget), 1 + Math.floor(c / 40), 5);
   spawnBudget -= n;
@@ -651,7 +1011,8 @@ function pointerSpawn(e) {
   ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   if (ray.ray.intersectPlane(zPlane, hit)) {
-    spawnSpark(hit.x + g() * 0.1, hit.y + g() * 0.1, g() * 0.2, 0.7);
+    if (conste.on) feedConstellation(hit.x, hit.y, 0);
+    else spawnSpark(hit.x + g() * 0.1, hit.y + g() * 0.1, g() * 0.2, 0.7);
     activity = Math.min(activity + 0.06, 1);
   }
 }
@@ -788,6 +1149,15 @@ function onBeat() {
   audio.kick.triggerAttackRelease('A0', '16n', t, 0.9);
   audio.kick.triggerAttackRelease('E1', '16n', t + 0.16, 0.5);
 }
+// 星座が1つ完成したときの和音
+function chord() {
+  if (!audio.bell) return;
+  const t = Tone.now();
+  ['C4', 'E4', 'G4', 'B4'].forEach((n, i) => {
+    try { audio.bell.triggerAttackRelease(n, '2n', t + i * 0.08, 0.32); } catch (e) {}
+  });
+}
+
 function music(t) {
   if (!audio) return;
   audio.drone.volume.rampTo(-60 + bhStrength * 38, 0.3);
@@ -876,10 +1246,14 @@ function updateScene(dt, pulse) {
   webGroup.position.lerp(webGoal, k);
   webGroup.scale.setScalar(webGroup.scale.x + (webScale - webGroup.scale.x) * k);
   webGroup.rotation.y += dt * 0.02;
+  // 星座が完成した瞬間だけ、他を暗く落として、できた形を見えるようにする
+  const dimAmt = conste.flash > 0 ? 0.22 + 0.78 * (1 - Math.min(conste.flash / 1.4, 1)) : 1;
+  cMat.uniforms.uOpacity.value = 1;
+  eMat.uniforms.uOpacity.value = 1;
   const wm = web.material.uniforms, bm = bodyMat.uniforms, sm = sparkMat.uniforms;
-  wm.uOpacity.value += (webOp - wm.uOpacity.value) * k;
-  bm.uOpacity.value += (bodyOp - bm.uOpacity.value) * k;
-  sm.uOpacity.value += (sparkOp - sm.uOpacity.value) * k;
+  wm.uOpacity.value += (webOp * dimAmt - wm.uOpacity.value) * k;
+  bm.uOpacity.value += (bodyOp * dimAmt - bm.uOpacity.value) * k;
+  sm.uOpacity.value += (sparkOp * dimAmt - sm.uOpacity.value) * k;
   bm.uPulse.value = mode === 'SEED' ? pulse * 1.6 : pulse; wm.uPulse.value = pulse * 0.4; sm.uPulse.value = pulse * 0.3;
   lineMat.opacity = (0.04 + activity * 0.3 + pulse * 0.06) * bm.uOpacity.value;
 
@@ -957,6 +1331,8 @@ function tick(now) {
   updateBody(dt);
   updateSparks(dt);
   updateWeek(dt);
+  updateConstellation(dt);
+  updateBang(dt);
   if (frame % 3 === 0) updateLines();
   updateScene(dt, pulse);
   music(time);
@@ -1145,6 +1521,8 @@ window.addEventListener('message', (ev) => {
 });
 restoreReal();
 renderRealBadge();
+restoreConstellations();
+$('btn-const')?.addEventListener('click', () => toggleConstellation());
 try { parent.postMessage({ type: 'inner:ready' }, '*'); } catch (e) {}
 
 window.__cosmos = { get starsBorn() { return starsBorn; }, get stage() { return stage; }, get mode() { return mode; },
@@ -1152,6 +1530,11 @@ window.__cosmos = { get starsBorn() { return starsBorn; }, get stage() { return 
   get bh() { return bhStrength; }, get ending() { return ending; }, get weekDensity() { return weekDensity; },
   get weekSummary() { return weekSummary; }, get weekCount() { return weekItems.length; },
   get realStars() { return realStars; }, get realLive() { return realLive; }, get realLog() { return realLog; }, applyReal, renderRealBadge,
+  get constellations() { return conste.done; }, get drawing() { return conste.on; },
+  drawMode: (on) => toggleConstellation(on), finale: bigBangFinale, get banging() { return bang.on; },
+  forgetConstellations: () => { try { localStorage.removeItem(CONST_KEY); } catch (e) {}
+    conste.done.length = 0; cCount = 0; eCount = 0; universeDone = false;
+    cGeo.setDrawRange(0, 0); eGeo.setDrawRange(0, 0); updateConsteBadge(); },
   forgetReal: () => { try { localStorage.removeItem(REAL_KEY); } catch (e) {} realSeen.clear(); realLog.length = 0; realStars = 0; renderRealBadge(); },
   submitWeek: (text) => { $('week-input').value = text; submitWeek(); } };
 </script>
