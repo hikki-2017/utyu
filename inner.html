@@ -637,8 +637,9 @@ function updateConstellation(dt) {
    ============================================================ */
 let universeDone = false;
 const bang = { on: false, t: 0, seeds: [], saved: null };
-const BANG = { collapse: 3.0, hold: 1.0, burst: 0.5, spread: 5.5, settle: 3.0 };
-const BANG_TOTAL = BANG.collapse + BANG.hold + BANG.burst + BANG.spread + BANG.settle;
+// 宇宙の誕生に30秒かける。急がないことで「生まれた」と感じられるようにする。
+const BANG = { quiet: 4.0, collapse: 7.0, hold: 2.0, burst: 1.5, spread: 9.0, settle: 6.5 };
+const BANG_TOTAL = BANG.quiet + BANG.collapse + BANG.hold + BANG.burst + BANG.spread + BANG.settle; // = 30.0
 
 function completeUniverse() {
   if (universeDone || bang.on) return;
@@ -680,23 +681,27 @@ function updateBang(dt) {
   bang.t += dt;
   const t = bang.t;
   const P = BANG;
-  const e1 = P.collapse, e2 = e1 + P.hold, e3 = e2 + P.burst, e4 = e3 + P.spread;
+  const e0 = P.quiet, e1 = e0 + P.collapse, e2 = e1 + P.hold, e3 = e2 + P.burst, e4 = e3 + P.spread;
 
-  if (t < e1) {
-    // 収縮：すべてが一点へ吸い込まれていく
-    const u = t / e1, pull = u * u;
+  if (t < e0) {
+    // 静止：まず、ぜんぶ止まる。ここで観客が息を止める
+    if (prev < 0.1) showBangText('宇宙が、完成した。', '');
+    if (prev < 2.0 && t >= 2.0) showBangText('', 'いま、生まれようとしている');
+  } else if (t < e1) {
+    // 収縮：すべてが一点へ吸い込まれていく（7秒かけてゆっくり）
+    const u = (t - e0) / P.collapse, pull = u * u;
     for (let i = 0; i < cCount; i++) {
       const o = i * 3;
       cPos[o] = bang.saved[o] * (1 - pull); cPos[o+1] = bang.saved[o+1] * (1 - pull); cPos[o+2] = bang.saved[o+2] * (1 - pull);
       cSize[i] = 22 * (1 - pull * 0.75);
     }
     collapseEdges(pull);
-    if (prev < 1.2 && t >= 1.2) showBangText('宇宙が、完成した。', 'すべてが、一点に戻っていく');
+    if (prev < e0 + 1.5 && t >= e0 + 1.5) showBangText('すべてが、一点に戻っていく', '');
   } else if (t < e2) {
     // 特異点：無音の一拍
     for (let i = 0; i < cCount; i++) { const o = i * 3; cPos[o] = cPos[o+1] = cPos[o+2] = 0; cSize[i] = 6; }
     collapseEdges(1);
-    if (prev < e1 + 0.05) { hideBangText(); try { audio.drone?.volume.rampTo(-60, 0.3); } catch (e) {} }
+    if (prev < e1 + 0.05) { hideBangText(); try { audio.drone?.volume.rampTo(-60, 0.6); } catch (e) {} }
   } else if (t < e3) {
     // 爆発
     if (prev < e2 + 0.05) {
