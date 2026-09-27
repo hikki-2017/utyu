@@ -49,6 +49,7 @@
 </style>
 </head>
 <body class="stage-intro">
+<script src="vendor/tone/Tone.js"></script>
 <canvas id="gl"></canvas>
 <video id="video" playsinline muted></video>
 
@@ -83,8 +84,8 @@
 </div>
 
 <script type="module">
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import * as Tone from 'https://cdn.jsdelivr.net/npm/tone@14.8.49/+esm';
+import * as THREE from './vendor/three/three.module.min.js';
+const Tone = window.Tone;
 
 /* ============================================================
    設定（URLパラメータで上書きできる）

@@ -1,7 +1,7 @@
 // Offline shell: network-first for our own files (always fresh when online), cache fallback when offline.
 // Third-party data (weather, tiles, NOAA, JMA) is never cached here; the app falls back to sample data by itself.
 const CACHE = "earth-eye-v1";
-const SHELL = ["./", "index.html", "style.css", "app.js", "model.js", "forecast.js", "locations.js", "planets.js", "solar.js", "solarui.js", "cosmos.js", "cosmos-data.js", "sky.js", "moon.js", "inner.html", "journey.js", "vendor/astro/astronomy.browser.min.js", "vendor/astro/satellite.min.js",
+const SHELL = ["./", "index.html", "style.css", "app.js", "model.js", "forecast.js", "locations.js", "planets.js", "solar.js", "solarui.js", "cosmos.js", "cosmos-data.js", "sky.js", "moon.js", "inner.html", "journey.js", "constellations.js", "vendor/tone/Tone.js", "vendor/astro/astronomy.browser.min.js", "vendor/astro/satellite.min.js",
   "vendor/maplibre/maplibre-gl.js", "vendor/maplibre/maplibre-gl.css", "vendor/three/three.module.min.js", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", (e) => {

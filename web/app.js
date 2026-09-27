@@ -15,6 +15,21 @@ const wmts = (layer, level, ext, date) => ({
 const WMS = "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}";
 const empty = { type: "FeatureCollection", features: [] };
 
+// ひまわり静止衛星の雲（10分刻み）。スライダーの時刻に合わせて差し替える。
+// 未来の時刻は観測が存在しないので、直近の観測にクランプする。
+const CLOUD_SPAN_H = 12;   // スライダー全体を直近12時間の実観測に対応させる
+function himawariTime(hourIndex) {
+  const lag = 50 * 60e3;                       // 配信までの遅れ
+  const back = CLOUD_SPAN_H * 3600e3 * (1 - (hourIndex || 0) / 71);
+  const d = new Date(Date.now() - lag - back);
+  d.setUTCMinutes(Math.floor(d.getUTCMinutes() / 10) * 10, 0, 0);
+  return d.toISOString().slice(0, 19) + "Z";
+}
+const jstHHMM = (iso) => {
+  const d = new Date(iso);
+  return `${String((d.getUTCHours() + 9) % 24).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+};
+
 const map = new maplibregl.Map({
   container: "map",
   center: [136, 28], zoom: 1.4, maxPitch: 60,
@@ -26,6 +41,8 @@ const map = new maplibregl.Map({
     sources: {
       blue: wmts("BlueMarble_ShadedRelief_Bathymetry", 8, "jpeg", "default"),
       true: wmts("VIIRS_SNPP_CorrectedReflectance_TrueColor", 9, "jpg", gibsDate),
+      cloud: { type: "raster", tileSize: 256, maxzoom: 6, attribution: "NASA GIBS / Himawari AHI",
+        tiles: [`${G}/Himawari_AHI_Band13_Clean_Infrared/default/${himawariTime(0)}/GoogleMapsCompatible_Level6/{z}/{y}/{x}.png`] },
       fire: { type: "raster", tileSize: 256, maxzoom: 12, attribution: `NASA FIRMS ${gibsDate}`, tiles: [`${WMS}&LAYERS=VIIRS_NOAA20_Thermal_Anomalies_375m_All&TIME=${gibsDate}`] },
       coast: wmts("Coastlines_15m", 13, "png", "default"),
       labels: wmts("Reference_Labels_15m", 13, "png", "default"),
@@ -40,6 +57,7 @@ const map = new maplibregl.Map({
       { id: "blue", type: "raster", source: "blue" },
       { id: "true", type: "raster", source: "true", paint: { "raster-opacity": 0.9 } },
       { id: "coast", type: "raster", source: "coast", paint: { "raster-opacity": 0.7 } },
+      { id: "cloud", type: "raster", source: "cloud", layout: { visibility: "none" }, paint: { "raster-opacity": 0.72 } },
       { id: "fire", type: "raster", source: "fire", minzoom: 4.5 },
       { id: "labels", type: "raster", source: "labels" },
       { id: "tyCircles", type: "fill", source: "tyCircles", paint: { "fill-color": ["get", "color"], "fill-opacity": ["get", "op"] } },
@@ -77,11 +95,12 @@ const spinStep = (now) => {
 requestAnimationFrame(spinStep);
 ["mousedown", "touchstart", "wheel"].forEach((e) => map.getCanvas().addEventListener(e, () => (spin = false), { passive: true }));
 
-const layerIds = { true: ["true"], fire: ["fire"], iss: ["issFoot", "issFootLine", "issPath"] };
+const layerIds = { true: ["true"], fire: ["fire"], iss: ["issFoot", "issFootLine", "issPath"], cloud: ["cloud"] };
 document.querySelectorAll("#layers button").forEach((b) =>
   b.addEventListener("click", () => {
     const on = b.classList.toggle("on");
     layerIds[b.dataset.layer].forEach((id) => map.setLayoutProperty(id, "visibility", on ? "visible" : "none"));
+    if (b.dataset.layer === "cloud") { cloudAt = null; $("#cloudNote").hidden = !on; updateCloudTime(); }
     if (b.dataset.layer === "iss") issMarker?.getElement().classList.toggle("off", !on);
   })
 );
@@ -246,10 +265,22 @@ function drawChart(i, off) {
   const x = (off / (N - 1)) * W; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
 }
 
+let cloudAt = null;
+function updateCloudTime() {
+  if (!map.getSource("cloud")) return;
+  if (map.getLayoutProperty("cloud", "visibility") !== "visible") return;
+  const t = himawariTime(state.hour);
+  if (t === cloudAt) return;
+  cloudAt = t;
+  map.getSource("cloud").setTiles([`${G}/Himawari_AHI_Band13_Clean_Infrared/default/${t}/GoogleMapsCompatible_Level6/{z}/{y}/{x}.png`]);
+  $("#cloudNote").textContent = `☁️ ひまわり ${jstHHMM(t)} の実観測（直近${CLOUD_SPAN_H}時間を再生）`;
+}
+
 function setHour(v) {
   state.hour = Math.max(0, Math.min(N - 1, v));
   $("#hour").value = state.hour;
   render();
+  updateCloudTime();
 }
 $("#hour").addEventListener("input", (e) => setHour(+e.target.value));
 $("#play").addEventListener("click", () => {

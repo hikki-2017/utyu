@@ -2,6 +2,7 @@
 // Real data: Open-Meteo (clouds), CelesTrak TLEs (satellites), astronomy-engine (Sun/Moon/planets), NASA GIBS (imagery).
 import { LOCATIONS } from "./locations.js";
 import { distKm } from "./model.js";
+import { CONSTELLATIONS, ASTERISMS, NAMED } from "./constellations.js";
 
 const $ = (s) => document.querySelector(s);
 const D = Math.PI / 180;
@@ -57,7 +58,7 @@ const cloudMean = (w, a, b) => {
 
 export function initSky() {
   const host = $("#sky"), canvas = $("#skyCanvas"), info = $("#skyInfo");
-  const st = { loc: { name: "東京", lat: 35.68, lon: 139.76 }, tz: "Asia/Tokyo", sats: [], t: Date.now(), t0: Date.now(), win: null, wx: null, passes: [], selPass: null, running: false, best: null, nearby: null, ready: false, token: 0 };
+  const st = { loc: { name: "東京", lat: 35.68, lon: 139.76 }, tz: "Asia/Tokyo", sats: [], t: Date.now(), t0: Date.now(), win: null, wx: null, passes: [], selPass: null, running: false, best: null, nearby: null, ready: false, token: 0, showStars: true };
   let raf = 0;
   const fmt = (ms, o = { hour: "2-digit", minute: "2-digit" }) => new Date(ms).toLocaleString("ja-JP", { timeZone: st.tz, ...o });
 
@@ -207,6 +208,10 @@ export function initSky() {
         <tr><th>月</th><td>${moonName(mo.phase)}（照らされている割合 ${(mo.illum * 100).toFixed(0)}%）</td></tr>
         <tr><th>雲量(平均)</th><td>${st.here != null ? st.here.toFixed(0) + "%" : "-"}</td></tr>
       </table>
+      <h3>今夜の星座</h3>
+      <p class="hint">空の図に星座線と1等星の名前を重ねています（夜のあいだだけ表示）。</p>
+      <div class="chips" id="starChips"><button data-star="${st.showStars ? 1 : 0}" class="${st.showStars ? "on" : ""}">${st.showStars ? "星座を表示中" : "星座は非表示"}</button></div>
+      <ol class="rank">${visibleConstellations().map((c) => `<li><span>${c.name}</span><em>${c.alt.toFixed(0)}°</em><small>${c.dir}</small></li>`).join("") || '<li><span class="hint">いまは夜ではありません</span></li>'}</ol>
       <h3>今夜見える衛星の通過${st.sats.length ? "" : "（軌道データ取得失敗）"}</h3>
       ${top.length ? `<ul class="ev passes">${top.map((p, i) => `<li data-t="${p.tMax}" class="${st.selPass === p ? "sel" : ""}"><b>${fmt(p.start)}</b> ${p.name.replace(/ \(.*/, "")}<br><small>${cardinal(p.azS)}→${cardinal(p.azMax)}（最高 ${p.maxEl.toFixed(0)}°）→${cardinal(p.azE)} ／ ${Math.round((p.end - p.start) / 1000)}秒</small></li>`).join("")}</ul>
         <p class="hint">クリックで空の図が通過時刻に移動します。夜で、衛星が太陽光を浴び、仰角10°超の区間のみ。</p>`
@@ -217,9 +222,26 @@ export function initSky() {
       ${st.best?.length ? `<ol class="rank">${st.best.slice(0, 5).map((b) => `<li><span>${b.name}</span><em>雲量 ${b.cloud.toFixed(0)}%</em><small>${distKm(st.loc.lat, st.loc.lon, b.lat, b.lon).toFixed(0)}km</small></li>`).join("")}</ol>` : '<p class="hint">全国の予報を取得中…</p>'}
       <h3>この地点の最新衛星画像</h3>${tileImg()}
       <p class="hint">データ: Open-Meteo（雲量）、CelesTrak（衛星軌道）、astronomy-engine（太陽・月・惑星）、NASA GIBS。衛星の明るさ（等級）は機体・角度で大きく変わります。</p>`;
+    r.querySelector("#starChips button")?.addEventListener("click", () => { st.showStars = !st.showStars; renderInfo(); draw(); });
     r.querySelectorAll(".passes li").forEach((li) => li.addEventListener("click", () => {
       st.selPass = st.passes.find((p) => String(p.tMax) === li.dataset.t); setTime(+li.dataset.t); renderInfo();
     }));
+  }
+
+  function visibleConstellations() {
+    if (!st.win || !st.ready) return [];
+    const ms = st.hours?.find((h) => h.score > 0)?.t || st.win.start;
+    if (sunAlt(ms) > -6) return [];
+    const out = [];
+    for (const c of CONSTELLATIONS) {
+      let best = null;
+      for (const s2 of c.stars) {
+        const p = raDecToAltAz(s2[0], s2[1], ms);
+        if (!best || p.alt > best.alt) best = p;
+      }
+      if (best && best.alt > 15) out.push({ name: c.name, alt: best.alt, dir: cardinal(best.az) });
+    }
+    return out.sort((a, b) => b.alt - a.alt).slice(0, 6);
   }
 
   function tileImg() {
@@ -239,6 +261,76 @@ export function initSky() {
     return `rgb(${mix([3, 6, 18], [86, 150, 220]).join(",")})`;
   }
 
+  // 赤経赤緯 → 地平座標（時角から計算）。astronomy-engine の Horizon を使う。
+  function raDecToAltAz(raH, dec, ms) {
+    const o = obs(), d = new Date(ms);
+    const h = Astronomy.Horizon(d, o, raH, dec, "normal");
+    return { alt: h.altitude, az: h.azimuth };
+  }
+
+  function drawConstellations(g, pt, R) {
+    const ms = st.t;
+    const proj = (raH, dec) => {
+      const p = raDecToAltAz(raH, dec, ms);
+      return p.alt < -1 ? null : { ...pt(p.az, Math.max(p.alt, 0)), alt: p.alt };
+    };
+    // 星座線
+    g.lineWidth = 1.2;
+    for (const c of CONSTELLATIONS) {
+      const pos = c.stars.map((st2) => proj(st2[0], st2[1]));
+      let visible = 0;
+      g.strokeStyle = "rgba(140,175,255,.45)";
+      g.beginPath();
+      for (const [i, j] of c.lines) {
+        const a = pos[i], b = pos[j];
+        if (!a || !b) continue;
+        g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); visible++;
+      }
+      g.stroke();
+      // 星
+      c.stars.forEach((st2, i) => {
+        const p = pos[i]; if (!p) return;
+        const r = Math.max(1.1, 3.4 - st2[2] * 0.55);
+        g.fillStyle = "rgba(255,255,255,.92)";
+        g.beginPath(); g.arc(p[0], p[1], r, 0, 7); g.fill();
+      });
+      // 星座名（見えている線が半分以上あるときだけ）
+      if (visible >= Math.max(1, Math.floor(c.lines.length / 2))) {
+        const vis = pos.filter(Boolean);
+        if (vis.length) {
+          const cx2 = vis.reduce((a, p) => a + p[0], 0) / vis.length;
+          const cy2 = vis.reduce((a, p) => a + p[1], 0) / vis.length;
+          g.fillStyle = "rgba(150,180,255,.65)"; g.font = "11px system-ui";
+          g.textAlign = "center"; g.textBaseline = "middle";
+          g.fillText(c.name, cx2, cy2);
+        }
+      }
+    }
+    // アステリズム（大三角）
+    g.setLineDash([3, 4]); g.lineWidth = 1; g.strokeStyle = "rgba(255,214,10,.45)";
+    for (const a of ASTERISMS) {
+      const pos = a.pts.map(([ra, dec]) => proj(ra, dec));
+      if (pos.some((p) => !p)) continue;
+      g.beginPath(); g.moveTo(pos[0][0], pos[0][1]);
+      for (let i = 1; i < pos.length; i++) g.lineTo(pos[i][0], pos[i][1]);
+      g.closePath(); g.stroke();
+      const cx2 = pos.reduce((s2, p) => s2 + p[0], 0) / pos.length;
+      const cy2 = pos.reduce((s2, p) => s2 + p[1], 0) / pos.length;
+      g.fillStyle = "rgba(255,214,10,.75)"; g.font = "12px system-ui"; g.textAlign = "center";
+      g.fillText(a.name, cx2, cy2);
+    }
+    g.setLineDash([]);
+    // 1等星の名前
+    g.font = "10px system-ui"; g.textAlign = "left"; g.textBaseline = "middle";
+    for (const [ra, dec, name] of NAMED) {
+      const p = proj(ra, dec); if (!p || p.alt < 3) continue;
+      g.fillStyle = "rgba(255,255,255,.95)";
+      g.beginPath(); g.arc(p[0], p[1], 2.4, 0, 7); g.fill();
+      g.fillStyle = "rgba(235,235,245,.72)";
+      g.fillText(name, p[0] + 5, p[1]);
+    }
+  }
+
   function draw() {
     if (!st.ready || !host.clientWidth) return;
     const dpr = Math.min(devicePixelRatio, 2), W = host.clientWidth, H = host.clientHeight - 70;
@@ -255,6 +347,8 @@ export function initSky() {
     g.fillStyle = "rgba(255,255,255,.7)"; g.font = "13px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
     [["北", 0], ["東", 90], ["南", 180], ["西", 270]].forEach(([t, az]) => { const [x, y] = pt(az, -9); g.fillText(t, x, y); });
     g.font = "10px system-ui"; g.fillText("30°", cx + 4, cy - R * (2 / 3) - 6); g.fillText("60°", cx + 4, cy - R * (1 / 3) - 6);
+
+    if (st.showStars !== false && sa < 0) { try { drawConstellations(g, pt, R); } catch (e) { /* 計算失敗時は星座だけ省略 */ } }
 
     // selected pass path
     if (st.selPass) {

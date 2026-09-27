@@ -163,3 +163,102 @@ body.journey #jHud{display:flex}
 #jBar{display:block;height:100%;width:0;background:linear-gradient(90deg,#5b8cff,#9a7bff);transition:width .1s linear}
 #jHud button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:rgba(15,23,41,.85);color:var(--txt);cursor:pointer;font-size:13px;line-height:1}
 body.journey header,body.journey aside,body.journey .controls,body.journey .legend,body.journey .timebar{opacity:0;pointer-events:none;transition:opacity .5s}
+
+/* ============================================================
+   Apple layer — 一画面一メッセージ。余白でヒエラルキーを作る。
+   iOS/macOS のシステムカラー・タイプスケール・マテリアルに寄せる。
+   ============================================================ */
+:root{
+  /* surface */
+  --bg:#000000; --panel:#0b0b0d; --card:#1c1c1e; --card2:#2c2c2e;
+  --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.055);
+  /* label */
+  --txt:#f5f5f7; --mut:rgba(235,235,245,.62); --mut2:rgba(235,235,245,.32);
+  /* accent + semantic (Apple system colors) */
+  --acc:#0a84ff; --low:#30d158; --mid:#ffd60a; --high:#ff9f0a; --crit:#ff453a;
+  /* geometry */
+  --r-sm:10px; --r:14px; --r-lg:20px; --r-pill:980px;
+  --ease:cubic-bezier(.32,.72,0,1); --dur:.32s;
+  --material:saturate(180%) blur(24px);
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;
+  font-size:15px; line-height:1.55; letter-spacing:.005em;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+/* — header: ロゴと切替だけ。説明文は捨てる — */
+header{padding:0 20px;height:52px;border-bottom:1px solid var(--line2);
+  background:rgba(0,0,0,.72);backdrop-filter:var(--material);-webkit-backdrop-filter:var(--material)}
+header p{display:none}
+.brand{gap:10px}
+.logo{font-size:20px;filter:grayscale(.15)}
+h1{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.status{font-size:12px;font-weight:500;border:0;background:var(--card);color:var(--mut);padding:5px 11px;border-radius:var(--r-pill)}
+.status.ok{color:var(--low)} .status.warn{color:var(--high)}
+/* — segmented control — */
+.seg{background:rgba(118,118,128,.20);border:0;border-radius:var(--r-sm);padding:2px;gap:2px;
+  backdrop-filter:var(--material);-webkit-backdrop-filter:var(--material)}
+.seg button{border-radius:8px;padding:6px 13px;font-size:13px;font-weight:500;color:var(--mut);
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.seg button.on{background:var(--card2);color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.seg button:not(.on):hover{color:var(--txt);background:rgba(255,255,255,.04)}
+.mode{margin-right:0}
+/* — sidebar: 余白を倍に、罫線を減らす — */
+aside{background:var(--panel);border-left:1px solid var(--line2);padding:20px 18px 28px;gap:16px}
+.card{background:var(--card);border:0;border-radius:var(--r);padding:18px}
+.card h2{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0 0 10px}
+.hint{font-size:13px;color:var(--mut);line-height:1.6;margin:0 0 10px}
+.foot{font-size:11px;color:var(--mut2);line-height:1.7}
+/* — controls / bars — */
+.timebar,.legend{background:rgba(28,28,30,.72);border:0;border-radius:var(--r);
+  backdrop-filter:var(--material);-webkit-backdrop-filter:var(--material);
+  box-shadow:0 8px 32px rgba(0,0,0,.45)}
+.timebar{padding:10px 14px}
+.timebar button{background:var(--acc);width:32px;height:32px}
+.timebar output{font-size:13px;color:var(--mut);font-weight:500}
+.legend{font-size:12px;color:var(--mut);padding:7px 12px}
+/* — buttons — */
+button.primary{border-radius:var(--r-pill);background:var(--acc);color:#fff;font-size:15px;font-weight:600;
+  padding:12px;transition:transform .18s var(--ease),filter .18s var(--ease)}
+button.primary:hover{filter:brightness(1.08)} button.primary:active{transform:scale(.975)}
+.chips button,#solarBar .plist button,#cosmosBar .plist button,.skyctl select{
+  background:var(--card2);border:0;border-radius:var(--r-pill);color:var(--mut);font-size:13px;font-weight:500;
+  padding:5px 13px;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.chips button.on,#solarBar .plist button.on,#cosmosBar .plist button.on{background:var(--acc);color:#fff}
+/* — lists / data — */
+#rankList li{padding:9px 8px;border-radius:var(--r-sm);font-size:14px;transition:background .2s var(--ease)}
+#rankList li:hover,#rankList li.sel{background:var(--card2)}
+.rscore{font-weight:600;font-variant-numeric:tabular-nums}
+.tag{font-size:11px;font-weight:600;padding:2px 8px}
+.stat{background:var(--card2);border:0;border-radius:var(--r-sm);padding:11px 13px;margin:10px 0;font-size:13px;line-height:1.6}
+.stat>b{font-size:11px;font-weight:500;color:var(--mut);letter-spacing:.02em;margin-bottom:3px}
+table{font-size:13px;margin:10px 0} th{color:var(--mut);padding:5px 8px 5px 0} td{padding:5px 0}
+.clist button{font-size:13px;padding:9px 6px;border-bottom:1px solid var(--line2);transition:background .2s var(--ease)}
+.clist button.on,.clist button:hover{background:var(--card2)}
+ul.ev li,ol.rank li,.rec li{font-size:13px} .rec li{border-bottom:1px solid var(--line2)}
+.plabel{background:rgba(28,28,30,.78);border:0;border-radius:var(--r-pill);font-size:11px;font-weight:500;padding:3px 10px;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.plabel.on{background:var(--acc)}
+.maplibregl-popup-content{background:rgba(28,28,30,.9);border:0;border-radius:var(--r-sm);padding:9px 13px;font-size:13px;
+  backdrop-filter:var(--material);-webkit-backdrop-filter:var(--material)}
+/* — intro: Keynote の1枚目 — */
+#intro{background:#000;transition:opacity .8s var(--ease)}
+.introbox{max-width:560px}
+.introbox .kicker{color:var(--mut2);font-size:12px;font-weight:500;letter-spacing:.2em;margin:0 0 18px}
+.introbox h2{font-size:clamp(34px,6vw,62px);font-weight:700;letter-spacing:-.03em;line-height:1.1;margin:0 0 18px}
+.introbox h2 span{color:var(--mut2)}
+.introbox .lead{font-size:17px;line-height:1.75;color:var(--mut);margin:0 0 40px}
+.introbox button{max-width:300px;padding:14px;border-radius:var(--r-pill);font-size:16px;font-weight:600;
+  background:var(--acc);box-shadow:none;margin-bottom:12px;transition:transform .18s var(--ease),filter .18s var(--ease)}
+.introbox button:active{transform:scale(.975)}
+.introbox button.ghost{background:none;border:0;color:var(--acc);font-size:15px;font-weight:400;padding:8px}
+.introbox .note{color:var(--mut2);font-size:12px;margin-top:28px}
+/* — journey caption — */
+#jCaption b{font-weight:600;letter-spacing:-.02em;text-shadow:0 2px 40px rgba(0,0,0,.9)}
+#jCaption span{color:var(--mut);font-weight:400}
+#jHud button{border:0;background:rgba(28,28,30,.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+
+.cloudnote{position:absolute;z-index:500;right:12px;bottom:120px;background:rgba(28,28,30,.72);
+  backdrop-filter:var(--material);-webkit-backdrop-filter:var(--material);
+  border-radius:var(--r-sm);padding:6px 11px;font-size:12px;color:var(--mut)}
+@media(max-width:860px){.cloudnote{display:none}}
